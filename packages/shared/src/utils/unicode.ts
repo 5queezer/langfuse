@@ -94,11 +94,41 @@ export function decodeUnicodeEscapesOnly(
           // Emit everything up to the backslash run
           if (lastEmit < i) out.push(input.slice(lastEmit, i));
 
-          // surrogate pair decoding
-          const pair = tryDecodeSurrogatePair(input, j + 5, codeUnit, n);
-          if (pair) {
-            out.push(pair.decoded);
-            i = j + 5 + pair.consumed;
+          // surrogate pair decoding (greedy: skip backslashes before low surrogate)
+          if (
+            codeUnit >= HIGH_SURROGATE_START &&
+            codeUnit <= HIGH_SURROGATE_END
+          ) {
+            // In greedy mode, the low surrogate may be preceded by extra backslashes
+            let k = j + 5;
+            while (k < n && input.charCodeAt(k) === BACKSLASH) k++;
+            if (k < n && input.charCodeAt(k) === U_CHAR && k + 5 <= n) {
+              const low = parseHex4(input, k + 1);
+              if (low >= LOW_SURROGATE_START && low <= LOW_SURROGATE_END) {
+                const cp =
+                  ((codeUnit - HIGH_SURROGATE_START) << 10) +
+                  (low - LOW_SURROGATE_START) +
+                  0x10000;
+                out.push(String.fromCodePoint(cp));
+                i = k + 5;
+                lastEmit = i;
+                continue;
+              }
+            }
+            // Lone high surrogate -> preserve literal
+            out.push("\\u" + input.slice(j + 1, j + 5));
+            i = j + 5;
+            lastEmit = i;
+            continue;
+          }
+
+          // Lone low surrogate -> preserve literal
+          if (
+            codeUnit >= LOW_SURROGATE_START &&
+            codeUnit <= LOW_SURROGATE_END
+          ) {
+            out.push("\\u" + input.slice(j + 1, j + 5));
+            i = j + 5;
             lastEmit = i;
             continue;
           }
