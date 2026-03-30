@@ -1844,7 +1844,7 @@ export const getAggregatedScoresForPrompts = async (
     params: {
       projectId,
       promptIds,
-      dataTypes: AGGREGATABLE_SCORE_TYPES,
+      dataTypes: LISTABLE_SCORE_TYPES,
     },
     tags: {
       feature: "tracing",
@@ -1963,7 +1963,7 @@ export const getDistinctScoreNames = async (p: {
     params: {
       projectId,
       cutoffCreatedAt: convertDateToClickhouseDateTime(cutoffCreatedAt),
-      dataTypes: AGGREGATABLE_SCORE_TYPES,
+      dataTypes: LISTABLE_SCORE_TYPES,
       ...(scoreTimestampFilter
         ? {
             filterTimestamp: convertDateToClickhouseDateTime(
@@ -2091,7 +2091,7 @@ export const getScoresForAnalyticsIntegrations = async function* (
       projectId,
       minTimestamp: convertDateToClickhouseDateTime(minTimestamp),
       maxTimestamp: convertDateToClickhouseDateTime(maxTimestamp),
-      dataTypes: AGGREGATABLE_SCORE_TYPES,
+      dataTypes: LISTABLE_SCORE_TYPES,
     },
     tags: {
       feature: "posthog",
