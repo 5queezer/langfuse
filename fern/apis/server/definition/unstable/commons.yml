@@ -51,10 +51,16 @@ types:
 
       If omitted, Langfuse uses the project's default evaluation model.
       If provided, the model must be runnable for the project at creation or update time.
+
+      To discover valid configured `provider` values for a project, call `GET /api/public/llm-connections` and read the `provider` field from the returned connections.
+      In practice, `provider` should match the provider name of an LLM connection that already exists in the same project.
     properties:
       provider:
         type: string
-        docs: Provider identifier, for example `openai` or `anthropic`.
+        docs: |
+          Provider identifier to use for this evaluator, for example `openai` or `anthropic`.
+
+          To discover valid values for the current project, call `GET /api/public/llm-connections` and use one of the returned `provider` values.
       model:
         type: string
         docs: Model identifier exposed by the provider, for example `gpt-4.1-mini`.

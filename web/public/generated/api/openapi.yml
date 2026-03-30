@@ -11956,10 +11956,25 @@ components:
 
         If provided, the model must be runnable for the project at creation or
         update time.
+
+
+        To discover valid configured `provider` values for a project, call `GET
+        /api/public/llm-connections` and read the `provider` field from the
+        returned connections.
+
+        In practice, `provider` should match the provider name of an LLM
+        connection that already exists in the same project.
       properties:
         provider:
           type: string
-          description: Provider identifier, for example `openai` or `anthropic`.
+          description: >-
+            Provider identifier to use for this evaluator, for example `openai`
+            or `anthropic`.
+
+
+            To discover valid values for the current project, call `GET
+            /api/public/llm-connections` and use one of the returned `provider`
+            values.
           example: openai
         model:
           type: string
