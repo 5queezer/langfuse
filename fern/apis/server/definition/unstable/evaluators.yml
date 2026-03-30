@@ -1,0 +1,104 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fern-api/fern/main/fern.schema.json
+imports:
+  commons: ./commons.yml
+  pagination: ../utils/pagination.yml
+
+service:
+  auth: true
+  base-path: /api/public/unstable
+  endpoints:
+    create:
+      docs: |
+        Create an evaluator on the unstable public API.
+
+        Evaluators define reusable scoring logic. This unstable surface may change as the evaluation data model evolves.
+      method: POST
+      path: /evaluators
+      request: CreateEvaluatorRequest
+      response: Evaluator
+
+    list:
+      docs: List evaluators on the unstable public API.
+      method: GET
+      path: /evaluators
+      request:
+        name: ListEvaluatorsRequest
+        query-parameters:
+          page:
+            type: optional<integer>
+            docs: Page number, starts at 1.
+          limit:
+            type: optional<integer>
+            docs: Limit of items per page.
+      response: Evaluators
+
+    get:
+      docs: Get an evaluator on the unstable public API.
+      method: GET
+      path: /evaluators/{evaluatorId}
+      path-parameters:
+        evaluatorId:
+          type: string
+          docs: Stable evaluator identifier.
+      response: Evaluator
+
+    update:
+      docs: Update an evaluator on the unstable public API.
+      method: PATCH
+      path: /evaluators/{evaluatorId}
+      path-parameters:
+        evaluatorId:
+          type: string
+          docs: Stable evaluator identifier.
+      request: UpdateEvaluatorRequest
+      response: Evaluator
+
+    delete:
+      docs: Delete an evaluator on the unstable public API.
+      method: DELETE
+      path: /evaluators/{evaluatorId}
+      path-parameters:
+        evaluatorId:
+          type: string
+          docs: Stable evaluator identifier.
+      response: DeleteEvaluatorResponse
+
+types:
+  Evaluator:
+    properties:
+      id: string
+      name: string
+      description: nullable<string>
+      type: commons.EvaluatorType
+      prompt: string
+      variables: list<string>
+      outputDefinition: unknown
+      modelConfig: nullable<commons.EvaluatorModelConfig>
+      continuousEvaluationCount: integer
+      createdAt: datetime
+      updatedAt: datetime
+
+  Evaluators:
+    properties:
+      data: list<Evaluator>
+      meta: pagination.MetaResponse
+
+  CreateEvaluatorRequest:
+    properties:
+      name: string
+      description: optional<nullable<string>>
+      prompt: string
+      outputDefinition: unknown
+      modelConfig: optional<nullable<commons.EvaluatorModelConfig>>
+
+  UpdateEvaluatorRequest:
+    properties:
+      name: optional<string>
+      description: optional<nullable<string>>
+      prompt: optional<string>
+      outputDefinition: optional<unknown>
+      modelConfig: optional<nullable<commons.EvaluatorModelConfig>>
+
+  DeleteEvaluatorResponse:
+    properties:
+      message: string

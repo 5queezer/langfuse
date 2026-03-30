@@ -1,12 +1,16 @@
 import { z } from "zod";
 import {
+  ExperimentContinuousEvaluationFilter,
+  ExperimentContinuousEvaluationMapping,
+  ObservationContinuousEvaluationFilter,
+  ObservationContinuousEvaluationMapping,
   PublicContinuousEvaluationFilter,
   PublicContinuousEvaluationMapping,
   PublicContinuousEvaluationStatus,
   PublicContinuousEvaluationTarget,
   UnstablePublicApiPaginationQuery,
   UnstablePublicApiPaginationResponse,
-} from "@/src/features/public-api/types/unstable-evals-shared";
+} from "@/src/features/public-api/types/unstable-public-evals-contract";
 
 export const APIContinuousEvaluation = z
   .object({
@@ -44,17 +48,34 @@ export const GetUnstableContinuousEvaluationQuery = z
 
 export const GetUnstableContinuousEvaluationResponse = APIContinuousEvaluation;
 
-export const PostUnstableContinuousEvaluationBody = z
-  .object({
-    name: z.string().min(1),
-    evaluatorId: z.string(),
-    target: PublicContinuousEvaluationTarget,
-    enabled: z.boolean(),
-    sampling: z.number().gt(0).lte(1).default(1),
-    filter: z.array(PublicContinuousEvaluationFilter).default([]),
-    mapping: z.array(PublicContinuousEvaluationMapping),
-  })
-  .strict();
+const ContinuousEvaluationCreateBase = {
+  name: z.string().min(1),
+  evaluatorId: z.string(),
+  enabled: z.boolean(),
+  sampling: z.number().gt(0).lte(1).default(1),
+};
+
+export const PostUnstableContinuousEvaluationBody = z.discriminatedUnion(
+  "target",
+  [
+    z
+      .object({
+        ...ContinuousEvaluationCreateBase,
+        target: z.literal("observation"),
+        filter: z.array(ObservationContinuousEvaluationFilter).default([]),
+        mapping: z.array(ObservationContinuousEvaluationMapping),
+      })
+      .strict(),
+    z
+      .object({
+        ...ContinuousEvaluationCreateBase,
+        target: z.literal("experiment"),
+        filter: z.array(ExperimentContinuousEvaluationFilter).default([]),
+        mapping: z.array(ExperimentContinuousEvaluationMapping),
+      })
+      .strict(),
+  ],
+);
 export type PostUnstableContinuousEvaluationBodyType = z.infer<
   typeof PostUnstableContinuousEvaluationBody
 >;
@@ -64,17 +85,43 @@ export const PostUnstableContinuousEvaluationResponse = APIContinuousEvaluation;
 export const PatchUnstableContinuousEvaluationQuery =
   GetUnstableContinuousEvaluationQuery;
 
-export const PatchUnstableContinuousEvaluationBody = z
+const ContinuousEvaluationPatchBase = {
+  name: z.string().min(1).optional(),
+  evaluatorId: z.string().optional(),
+  enabled: z.boolean().optional(),
+  sampling: z.number().gt(0).lte(1).optional(),
+};
+
+const UntargetedContinuousEvaluationPatch = z
   .object({
-    name: z.string().min(1).optional(),
-    evaluatorId: z.string().optional(),
-    target: PublicContinuousEvaluationTarget.optional(),
-    enabled: z.boolean().optional(),
-    sampling: z.number().gt(0).lte(1).optional(),
-    filter: z.array(PublicContinuousEvaluationFilter).optional(),
-    mapping: z.array(PublicContinuousEvaluationMapping).optional(),
+    ...ContinuousEvaluationPatchBase,
   })
-  .strict()
+  .strict();
+
+const ObservationContinuousEvaluationPatch = z
+  .object({
+    ...ContinuousEvaluationPatchBase,
+    target: z.literal("observation"),
+    filter: z.array(ObservationContinuousEvaluationFilter).optional(),
+    mapping: z.array(ObservationContinuousEvaluationMapping).optional(),
+  })
+  .strict();
+
+const ExperimentContinuousEvaluationPatch = z
+  .object({
+    ...ContinuousEvaluationPatchBase,
+    target: z.literal("experiment"),
+    filter: z.array(ExperimentContinuousEvaluationFilter).optional(),
+    mapping: z.array(ExperimentContinuousEvaluationMapping).optional(),
+  })
+  .strict();
+
+export const PatchUnstableContinuousEvaluationBody = z
+  .union([
+    UntargetedContinuousEvaluationPatch,
+    ObservationContinuousEvaluationPatch,
+    ExperimentContinuousEvaluationPatch,
+  ])
   .refine((data) => Object.keys(data).length > 0, {
     message:
       "Request body cannot be empty. At least one field must be provided for update.",

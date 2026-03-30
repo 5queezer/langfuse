@@ -1,0 +1,35 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fern-api/fern/main/fern.schema.json
+types:
+  EvaluatorType:
+    enum:
+      - llm_as_judge
+
+  ContinuousEvaluationTarget:
+    enum:
+      - observation
+      - experiment
+
+  ContinuousEvaluationStatus:
+    enum:
+      - active
+      - inactive
+      - paused
+
+  ContinuousEvaluationMappingSource:
+    enum:
+      - input
+      - output
+      - metadata
+      - expected_output
+
+  EvaluatorModelConfig:
+    properties:
+      provider: string
+      model: string
+      modelParams: optional<nullable<map<string, unknown>>>
+
+  ContinuousEvaluationMapping:
+    properties:
+      variable: string
+      source: ContinuousEvaluationMappingSource
+      jsonPath: optional<string>

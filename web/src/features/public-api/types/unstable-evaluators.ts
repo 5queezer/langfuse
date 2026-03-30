@@ -5,7 +5,7 @@ import {
   PublicEvaluatorType,
   UnstablePublicApiPaginationQuery,
   UnstablePublicApiPaginationResponse,
-} from "@/src/features/public-api/types/unstable-evals-shared";
+} from "@/src/features/public-api/types/unstable-public-evals-contract";
 import { PersistedEvalOutputDefinitionSchema } from "@langfuse/shared";
 
 export const APIEvaluator = z

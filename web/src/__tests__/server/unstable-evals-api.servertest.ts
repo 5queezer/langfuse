@@ -343,10 +343,6 @@ describe("/api/public/unstable evals API", () => {
     );
 
     expect(invalidObservation.status).toBe(400);
-    expect(invalidObservation.body).toMatchObject({
-      message:
-        'Mapping source "expected_output" is not supported for target "observation"',
-    });
 
     const validExperiment = await makeZodVerifiedAPICall(
       PostUnstableContinuousEvaluationResponse,

@@ -1,11 +1,11 @@
 import { auditLog } from "@/src/features/audit-logs/auditLog";
-import { createAuthedProjectAPIRoute } from "@/src/features/public-api/server/createAuthedProjectAPIRoute";
-import { withMiddlewares } from "@/src/features/public-api/server/withMiddlewares";
 import {
   deletePublicContinuousEvaluation,
   getPublicContinuousEvaluation,
   updatePublicContinuousEvaluation,
-} from "@/src/features/evals/server/public-evals-service";
+} from "@/src/features/evals/server/unstable-public-api";
+import { createAuthedProjectAPIRoute } from "@/src/features/public-api/server/createAuthedProjectAPIRoute";
+import { withMiddlewares } from "@/src/features/public-api/server/withMiddlewares";
 import {
   DeleteUnstableContinuousEvaluationQuery,
   DeleteUnstableContinuousEvaluationResponse,

@@ -1,0 +1,89 @@
+import type { PersistedEvalOutputDefinition } from "@langfuse/shared";
+import type {
+  EvalTemplate,
+  JobConfiguration,
+  Prisma as PrismaNamespace,
+  prisma,
+} from "@langfuse/shared/src/db";
+import type {
+  PublicContinuousEvaluationFilterType,
+  PublicContinuousEvaluationMappingType,
+  PublicContinuousEvaluationStatusType,
+  PublicContinuousEvaluationTargetType,
+  PublicEvaluatorModelConfigType,
+} from "@/src/features/public-api/types/unstable-public-evals-contract";
+
+export type PrismaClientLike =
+  | typeof prisma
+  | PrismaNamespace.TransactionClient;
+
+export type ApiEvaluatorRecord = {
+  id: string;
+  name: string;
+  description: string | null;
+  type: "llm_as_judge";
+  prompt: string;
+  variables: string[];
+  outputDefinition: PersistedEvalOutputDefinition;
+  modelConfig: PublicEvaluatorModelConfigType | null;
+  continuousEvaluationCount: number;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+export type ApiContinuousEvaluationRecord = {
+  id: string;
+  name: string;
+  evaluatorId: string;
+  target: PublicContinuousEvaluationTargetType;
+  enabled: boolean;
+  status: PublicContinuousEvaluationStatusType;
+  pausedReason: string | null;
+  pausedMessage: string | null;
+  sampling: number;
+  filter: PublicContinuousEvaluationFilterType[];
+  mapping: PublicContinuousEvaluationMappingType[];
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+export type StoredPublicEvaluatorTemplate = Pick<
+  EvalTemplate,
+  | "id"
+  | "projectId"
+  | "evaluatorId"
+  | "name"
+  | "description"
+  | "version"
+  | "prompt"
+  | "provider"
+  | "model"
+  | "modelParams"
+  | "vars"
+  | "outputDefinition"
+  | "createdAt"
+  | "updatedAt"
+>;
+
+export type StoredPublicContinuousEvaluationConfig = Pick<
+  JobConfiguration,
+  | "id"
+  | "projectId"
+  | "evalTemplateId"
+  | "scoreName"
+  | "targetObject"
+  | "filter"
+  | "variableMapping"
+  | "sampling"
+  | "status"
+  | "blockedAt"
+  | "blockReason"
+  | "blockMessage"
+  | "createdAt"
+  | "updatedAt"
+> & {
+  evalTemplate: Pick<
+    EvalTemplate,
+    "id" | "projectId" | "evaluatorId" | "name" | "vars" | "prompt"
+  > | null;
+};
