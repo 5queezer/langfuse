@@ -2231,6 +2231,22 @@ describe("OTel Resource Span Mapping", () => {
         location: "Example City",
         unit: "celsius",
       });
+
+      const metadataAttributes =
+        ((observationEvent?.body.metadata as Record<string, unknown>)
+          ?.attributes as Record<string, unknown>) ?? {};
+      const parsedModelRequestParameters =
+        typeof metadataAttributes.model_request_parameters === "string"
+          ? JSON.parse(metadataAttributes.model_request_parameters)
+          : metadataAttributes.model_request_parameters;
+
+      expect(parsedModelRequestParameters).toMatchObject({
+        temperature: 0,
+      });
+      expect(
+        (parsedModelRequestParameters as Record<string, unknown>)
+          ?.function_tools,
+      ).toBeUndefined();
     });
 
     it("should not duplicate system instructions when pydantic_ai.all_messages already has a system message", async () => {
