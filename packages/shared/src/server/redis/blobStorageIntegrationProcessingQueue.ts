@@ -16,7 +16,6 @@ export class BlobStorageIntegrationProcessingQueue {
     }
 
     const newRedis = createNewRedisInstance({
-      enableOfflineQueue: false,
       ...redisQueueRetryOptions,
     });
 
@@ -28,7 +27,7 @@ export class BlobStorageIntegrationProcessingQueue {
           ),
           defaultJobOptions: {
             removeOnComplete: true,
-            removeOnFail: 100_000,
+            removeOnFail: true,
             attempts: 5,
             backoff: {
               type: "exponential",

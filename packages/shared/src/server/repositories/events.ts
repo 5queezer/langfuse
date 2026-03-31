@@ -72,22 +72,9 @@ import {
 } from "../queries/clickhouse-sql/event-query-builder";
 import { type EventsObservationPublic } from "../queries/createGenerationsQuery";
 import { UiColumnMappings } from "../../tableDefinitions";
+import { eventsTableCols } from "../../eventsTable";
+import { tracesTableCols } from "../../tableDefinitions/tracesTable";
 import { parseMetadataCHRecordToDomain } from "../utils/metadata_conversion";
-
-/**
- * Attempt to command the legacy events table.
- * Skips if env toggle is off; swallows errors if the table no longer exists.
- */
-async function commandLegacyEventsTable(
-  opts: Parameters<typeof commandClickhouse>[0],
-): Promise<void> {
-  if (env.LANGFUSE_LEGACY_EVENTS_TABLE_EXISTS !== "true") return;
-  try {
-    await commandClickhouse(opts);
-  } catch (e) {
-    logger.warn("Legacy events table command failed (table may not exist)", e);
-  }
-}
 
 type ObservationsTableQueryResultWitouhtTraceFields = Omit<
   ObservationsTableQueryResult,
@@ -226,10 +213,11 @@ async function enrichObservationsWithTraceFields(
  * Internal helper: extract and convert time filter from FilterList
  * Common pattern: find time filter and convert to ClickHouse DateTime format
  */
-function extractTimeFilter(
+export function extractTimeFilter(
   filter: FilterList,
   tableName: "events_proto" | "traces" = "events_proto",
   fieldName: "start_time" | "timestamp" = "start_time",
+  prefix?: "e" | "t",
 ): string | null {
   const timeFilter = filter.find(
     (f) =>
@@ -237,7 +225,7 @@ function extractTimeFilter(
       (tableName === "events_proto"
         ? f.clickhouseTable.startsWith("events_")
         : f.clickhouseTable === tableName) &&
-      f.field === fieldName &&
+      f.field === (prefix ? `${prefix}.${fieldName}` : fieldName) &&
       (f.operator === ">=" || f.operator === ">"),
   );
 
@@ -422,36 +410,45 @@ async function getObservationsFromEventsTableInternal<T>(
 
   // Extract positionInTrace filter and build baseFilter without it
   const positionFilter = filter.find((f) => f.type === "positionInTrace");
-  // Extract levelInTrace filters (number type, may have multiple for range: >= and <=)
-  const levelFilters = filter.filter(
-    (f) => f.column === "levelInTrace" && f.type === "number",
-  );
   const baseFilter: typeof filter = [
-    ...filter.filter(
-      (f) => f.type !== "positionInTrace" && f.column !== "levelInTrace",
-    ),
+    ...filter.filter((f) => f.type !== "positionInTrace"),
   ];
 
   // Build filter list from baseFilter (without positionInTrace)
   const observationsFilter = new FilterList(
-    createFilterFromFilterState(baseFilter, eventsTableUiColumnDefinitions),
+    createFilterFromFilterState(
+      baseFilter,
+      eventsTableUiColumnDefinitions,
+      eventsTableCols,
+    ),
   );
 
   const startTimeFrom = extractTimeFilter(observationsFilter);
-  const hasScoresFilter = baseFilter.some((f) =>
-    f.column.toLowerCase().includes("score"),
-  );
+  const hasObservationScoresFilter = baseFilter.some((f) => {
+    const column = f.column.toLowerCase();
+    return (
+      column === "scores" ||
+      column === "scores_avg" ||
+      column === "score_categories" ||
+      column === "scores (numeric)" ||
+      column === "scores (categorical)"
+    );
+  });
+  const hasTraceScoresFilter = baseFilter.some((f) => {
+    const column = f.column.toLowerCase();
+    return (
+      column === "trace_scores_avg" ||
+      column === "trace_score_categories" ||
+      column === "trace scores (numeric)" ||
+      column === "trace scores (categorical)"
+    );
+  });
   const search = clickhouseSearchCondition(
     opts.searchQuery,
     opts.searchType,
     "e",
-    ["span_id", "name", "user_id", "session_id", "trace_id"],
+    ["span_id", "name", "trace_name", "user_id", "session_id", "trace_id"],
   );
-
-  // Query optimization: joining traces onto observations is expensive.
-  // Only join if search query requires it.
-  // TODO further optimize by checking if specific trace fields are filtered on.
-  const needsTraceJoin = search.query;
 
   const orderByEntries = orderByToEntries(
     [orderBy ?? null],
@@ -477,14 +474,15 @@ async function getObservationsFromEventsTableInternal<T>(
 
   // Handle positionInTrace via CTE with ROW_NUMBER()
   // All modes use the same pattern: rank observations per trace, pick rn = N.
-  // root/nthFromStart → ORDER BY start_time ASC
-  // last/nthFromEnd   → ORDER BY start_time DESC
+  // `root` remains only for backward compatibility and maps to `first`.
+  // root/first/nthFromStart → ORDER BY start_time ASC
+  // last/nthFromEnd         → ORDER BY start_time DESC
   if (positionFilter && "key" in positionFilter) {
     const key = positionFilter.key;
     const isFromEnd = key === "last" || key === "nthFromEnd";
     const direction = isFromEnd ? "DESC" : "ASC";
     const position =
-      key === "last" || key === "root"
+      key === "last" || key === "first" || key === "root"
         ? 1
         : typeof positionFilter.value === "number"
           ? positionFilter.value
@@ -498,21 +496,18 @@ async function getObservationsFromEventsTableInternal<T>(
       ),
     );
     const appliedNativeFilter = nativeFilter.apply();
+    const qualifyingObsBuilder = new EventsQueryBuilder({ projectId })
+      .selectRaw(
+        "e.span_id",
+        `ROW_NUMBER() OVER (PARTITION BY e.trace_id ORDER BY e.start_time ${direction}, e.event_ts ${direction}, e.span_id ${direction}) as _rn`,
+      )
+      .where(appliedNativeFilter)
+      .where(search);
 
-    // Build CTE WHERE clause
-    const nativeFilterClause = appliedNativeFilter.query
-      .trim()
-      .replace(/^(AND|OR)\s+/i, "");
-    const searchClause = search.query.trim().replace(/^(AND|OR)\s+/i, "");
-    let cteWhere = "e.project_id = {projectId: String}";
-    if (nativeFilterClause) cteWhere += ` AND ${nativeFilterClause}`;
-    if (searchClause) cteWhere += ` AND ${searchClause}`;
-
-    // TODO: Build this CTE via a query builder instead of raw SQL string
-    queryBuilder.withCTE("qualifying_obs", {
-      query: `SELECT e.span_id, ROW_NUMBER() OVER (PARTITION BY e.trace_id ORDER BY e.start_time ${direction}, e.event_ts ${direction}, e.span_id ${direction}) as _rn FROM events_core e WHERE ${cteWhere}`,
-      params: { projectId, ...appliedNativeFilter.params, ...search.params },
-    });
+    queryBuilder.withCTE(
+      "qualifying_obs",
+      qualifyingObsBuilder.buildWithParams(),
+    );
 
     queryBuilder.whereRaw(
       "e.span_id IN (SELECT span_id FROM qualifying_obs WHERE _rn = {_posRn: UInt32})",
@@ -520,78 +515,31 @@ async function getObservationsFromEventsTableInternal<T>(
     );
   }
 
-  // Handle levelInTrace via recursive CTE
-  // Level 0 = root (no parent), level 1 = direct children of root, etc.
-  if (levelFilters.length > 0) {
-    const nativeLevelFilter = new FilterList(
-      createFilterFromFilterState(
-        baseFilter,
-        eventsTableNativeUiColumnDefinitions,
-      ),
-    );
-    const appliedNativeLevelFilter = nativeLevelFilter.apply();
-    const nativeLevelClause = appliedNativeLevelFilter.query
-      .trim()
-      .replace(/^(AND|OR)\s+/i, "");
-
-    let cteScope = "e.project_id = {projectId: String}";
-    if (nativeLevelClause) cteScope += ` AND ${nativeLevelClause}`;
-
-    // Each UNION ALL branch has its own namespace scope, so `e` can be reused safely.
-    const levelCteQuery = [
-      // Anchor: root observations (no parent)
-      `SELECT e.span_id, e.trace_id, 0 AS level FROM events_core e WHERE ${cteScope} AND e.parent_span_id = ''`,
-      "UNION ALL",
-      // Recursive: children
-      `SELECT e.span_id, e.trace_id, parent.level + 1 AS level FROM events_core e JOIN level_tree parent ON e.parent_span_id = parent.span_id AND e.trace_id = parent.trace_id WHERE e.project_id = {projectId: String}${nativeLevelClause ? ` AND ${nativeLevelClause}` : ""}`,
-    ].join(" ");
-
-    // TODO: Build this CTE via a query builder instead of raw SQL string
-    queryBuilder.withRecursiveCTE("level_tree", {
-      query: levelCteQuery,
-      params: { projectId, ...appliedNativeLevelFilter.params },
-    });
-
-    // Build WHERE conditions for each level filter
-    const levelConditions: string[] = [];
-    const levelParams: Record<string, number> = {};
-    levelFilters.forEach((lf, idx) => {
-      if (lf.type === "number") {
-        const paramName = `_levelVal${idx}`;
-        levelConditions.push(`level ${lf.operator} {${paramName}: UInt32}`);
-        // Round to integer — level is always a whole number depth
-        levelParams[paramName] = Math.round(lf.value);
-      }
-    });
-
-    const levelWhere = levelConditions.join(" AND ");
-    queryBuilder.whereRaw(
-      `e.span_id IN (SELECT span_id FROM level_tree WHERE ${levelWhere})`,
-      levelParams,
-    );
-  }
-
   queryBuilder
-    .when(hasScoresFilter, (b) =>
+    .when(hasObservationScoresFilter, (b) =>
       b.withCTE(
         "scores_agg",
         eventsScoresAggregation({ projectId, startTimeFrom }),
       ),
     )
-    .when(Boolean(needsTraceJoin), (b) =>
+    .when(hasTraceScoresFilter, (b) =>
       b.withCTE(
-        "traces",
-        eventsTracesAggregation({ projectId, startTimeFrom }).buildWithParams(),
+        "trace_scores_agg",
+        eventsTracesScoresAggregation({
+          projectId,
+          startTimeFrom,
+          hasScoreAggregationFilters: true,
+        }),
       ),
     )
-    .when(Boolean(needsTraceJoin), (b) =>
-      b.leftJoin(
-        "traces t",
-        "ON t.id = e.trace_id AND t.project_id = e.project_id",
-      ),
-    )
-    .when(hasScoresFilter, (b) =>
+    .when(hasObservationScoresFilter, (b) =>
       b.leftJoin("scores_agg AS s", "ON s.observation_id = e.span_id"),
+    )
+    .when(hasTraceScoresFilter, (b) =>
+      b.leftJoin(
+        "trace_scores_agg AS ts",
+        "ON ts.trace_id = e.trace_id AND ts.project_id = e.project_id",
+      ),
     )
     .applyFilters(observationsFilter)
     .where(search)
@@ -938,6 +886,7 @@ function buildObservationsQueryComponents(
     PUBLIC_API_EVENTS_COLUMN_MAPPING,
     advancedFilters,
     columnDefinitions,
+    eventsTableCols,
   );
 
   // Determine if we need to join traces (check both simple params and advanced filters)
@@ -1279,6 +1228,7 @@ async function getTracesFromEventsTableForPublicApiInternal<T>(
     PUBLIC_API_TRACES_COLUMN_MAPPING,
     advancedFilters,
     TRACES_FROM_EVENTS_UI_COLUMN_DEFINITIONS,
+    tracesTableCols,
   );
 
   // Extract time filter for cut-off point in eventsTracesAggregation
@@ -1525,7 +1475,6 @@ export const updateEvents = async (
   await Promise.all([
     commandClickhouse(updateOpts("events_full")),
     commandClickhouse(updateOpts("events_core")),
-    commandLegacyEventsTable(updateOpts("events")),
   ]);
 };
 
@@ -1538,7 +1487,11 @@ export const getEventsGroupedByModel = async (
   filter: FilterState,
 ) => {
   const eventsFilter = new FilterList(
-    createFilterFromFilterState(filter, eventsTableUiColumnDefinitions),
+    createFilterFromFilterState(
+      filter,
+      eventsTableUiColumnDefinitions,
+      eventsTableCols,
+    ),
   );
 
   const appliedEventsFilter = eventsFilter.apply();
@@ -1579,7 +1532,11 @@ export const getEventsGroupedByModelId = async (
   filter: FilterState,
 ) => {
   const eventsFilter = new FilterList(
-    createFilterFromFilterState(filter, eventsTableUiColumnDefinitions),
+    createFilterFromFilterState(
+      filter,
+      eventsTableUiColumnDefinitions,
+      eventsTableCols,
+    ),
   );
 
   const appliedEventsFilter = eventsFilter.apply();
@@ -1618,7 +1575,11 @@ export const getEventsGroupedByName = async (
   filter: FilterState,
 ) => {
   const eventsFilter = new FilterList(
-    createFilterFromFilterState(filter, eventsTableUiColumnDefinitions),
+    createFilterFromFilterState(
+      filter,
+      eventsTableUiColumnDefinitions,
+      eventsTableCols,
+    ),
   );
 
   const appliedEventsFilter = eventsFilter.apply();
@@ -1658,7 +1619,11 @@ export const getEventsGroupedByTraceName = async (
   opts?: { extraWhereRaw?: string },
 ) => {
   const eventsFilter = new FilterList(
-    createFilterFromFilterState(filter, eventsTableUiColumnDefinitions),
+    createFilterFromFilterState(
+      filter,
+      eventsTableUiColumnDefinitions,
+      eventsTableCols,
+    ),
   );
 
   const appliedEventsFilter = eventsFilter.apply();
@@ -1707,7 +1672,11 @@ export const getEventsGroupedByTraceTags = async (
   opts?: { extraWhereRaw?: string },
 ) => {
   const eventsFilter = new FilterList(
-    createFilterFromFilterState(filter, eventsTableUiColumnDefinitions),
+    createFilterFromFilterState(
+      filter,
+      eventsTableUiColumnDefinitions,
+      eventsTableCols,
+    ),
   );
 
   const appliedEventsFilter = eventsFilter.apply();
@@ -1764,7 +1733,11 @@ export const getEventsGroupedByPromptName = async (
   filter: FilterState,
 ) => {
   const eventsFilter = new FilterList(
-    createFilterFromFilterState(filter, eventsTableUiColumnDefinitions),
+    createFilterFromFilterState(
+      filter,
+      eventsTableUiColumnDefinitions,
+      eventsTableCols,
+    ),
   );
 
   const appliedEventsFilter = eventsFilter.apply();
@@ -1805,7 +1778,11 @@ export const getEventsGroupedByType = async (
   filter: FilterState,
 ) => {
   const eventsFilter = new FilterList(
-    createFilterFromFilterState(filter, eventsTableUiColumnDefinitions),
+    createFilterFromFilterState(
+      filter,
+      eventsTableUiColumnDefinitions,
+      eventsTableCols,
+    ),
   );
 
   const appliedEventsFilter = eventsFilter.apply();
@@ -1845,7 +1822,11 @@ export const getEventsGroupedByUserId = async (
   opts?: { extraWhereRaw?: string },
 ) => {
   const eventsFilter = new FilterList(
-    createFilterFromFilterState(filter, eventsTableUiColumnDefinitions),
+    createFilterFromFilterState(
+      filter,
+      eventsTableUiColumnDefinitions,
+      eventsTableCols,
+    ),
   );
 
   const appliedEventsFilter = eventsFilter.apply();
@@ -1888,7 +1869,11 @@ export const getEventsGroupedByVersion = async (
   filter: FilterState,
 ) => {
   const eventsFilter = new FilterList(
-    createFilterFromFilterState(filter, eventsTableUiColumnDefinitions),
+    createFilterFromFilterState(
+      filter,
+      eventsTableUiColumnDefinitions,
+      eventsTableCols,
+    ),
   );
 
   const appliedEventsFilter = eventsFilter.apply();
@@ -1929,7 +1914,11 @@ export const getEventsGroupedBySessionId = async (
   filter: FilterState,
 ) => {
   const eventsFilter = new FilterList(
-    createFilterFromFilterState(filter, eventsTableUiColumnDefinitions),
+    createFilterFromFilterState(
+      filter,
+      eventsTableUiColumnDefinitions,
+      eventsTableCols,
+    ),
   );
 
   const appliedEventsFilter = eventsFilter.apply();
@@ -1970,7 +1959,11 @@ export const getEventsGroupedByLevel = async (
   filter: FilterState,
 ) => {
   const eventsFilter = new FilterList(
-    createFilterFromFilterState(filter, eventsTableUiColumnDefinitions),
+    createFilterFromFilterState(
+      filter,
+      eventsTableUiColumnDefinitions,
+      eventsTableCols,
+    ),
   );
 
   const appliedEventsFilter = eventsFilter.apply();
@@ -2011,7 +2004,11 @@ export const getEventsGroupedByEnvironment = async (
   filter: FilterState,
 ) => {
   const eventsFilter = new FilterList(
-    createFilterFromFilterState(filter, eventsTableUiColumnDefinitions),
+    createFilterFromFilterState(
+      filter,
+      eventsTableUiColumnDefinitions,
+      eventsTableCols,
+    ),
   );
 
   const appliedEventsFilter = eventsFilter.apply();
@@ -2052,7 +2049,11 @@ export const getEventsGroupedByExperimentDatasetId = async (
   filter: FilterState,
 ) => {
   const eventsFilter = new FilterList(
-    createFilterFromFilterState(filter, eventsTableUiColumnDefinitions),
+    createFilterFromFilterState(
+      filter,
+      eventsTableUiColumnDefinitions,
+      eventsTableCols,
+    ),
   );
 
   const appliedEventsFilter = eventsFilter.apply();
@@ -2097,7 +2098,11 @@ export const getEventsGroupedByExperimentId = async (
   filter: FilterState,
 ) => {
   const eventsFilter = new FilterList(
-    createFilterFromFilterState(filter, eventsTableUiColumnDefinitions),
+    createFilterFromFilterState(
+      filter,
+      eventsTableUiColumnDefinitions,
+      eventsTableCols,
+    ),
   );
 
   const appliedEventsFilter = eventsFilter.apply();
@@ -2136,7 +2141,11 @@ export const getEventsGroupedByExperimentName = async (
   filter: FilterState,
 ) => {
   const eventsFilter = new FilterList(
-    createFilterFromFilterState(filter, eventsTableUiColumnDefinitions),
+    createFilterFromFilterState(
+      filter,
+      eventsTableUiColumnDefinitions,
+      eventsTableCols,
+    ),
   );
 
   const appliedEventsFilter = eventsFilter.apply();
@@ -2175,7 +2184,11 @@ export const getEventsGroupedByHasParentObservation = async (
   filter: FilterState,
 ) => {
   const eventsFilter = new FilterList(
-    createFilterFromFilterState(filter, eventsTableUiColumnDefinitions),
+    createFilterFromFilterState(
+      filter,
+      eventsTableUiColumnDefinitions,
+      eventsTableCols,
+    ),
   );
 
   const appliedEventsFilter = eventsFilter.apply();
@@ -2213,7 +2226,11 @@ export const getEventsGroupedByToolName = async (
   filter: FilterState,
 ) => {
   const eventsFilter = new FilterList(
-    createFilterFromFilterState(filter, eventsTableUiColumnDefinitions),
+    createFilterFromFilterState(
+      filter,
+      eventsTableUiColumnDefinitions,
+      eventsTableCols,
+    ),
   );
 
   const appliedEventsFilter = eventsFilter.apply();
@@ -2253,7 +2270,11 @@ export const getEventsGroupedByCalledToolName = async (
   filter: FilterState,
 ) => {
   const eventsFilter = new FilterList(
-    createFilterFromFilterState(filter, eventsTableUiColumnDefinitions),
+    createFilterFromFilterState(
+      filter,
+      eventsTableUiColumnDefinitions,
+      eventsTableCols,
+    ),
   );
 
   const appliedEventsFilter = eventsFilter.apply();
@@ -2360,7 +2381,6 @@ export const deleteEventsByTraceIds = async (
   await Promise.all([
     commandClickhouse(deleteOpts("events_full")),
     commandClickhouse(deleteOpts("events_core")),
-    commandLegacyEventsTable(deleteOpts("events")),
   ]);
 };
 
@@ -2412,7 +2432,6 @@ export const deleteEventsByProjectId = async (
   await Promise.all([
     commandClickhouse(deleteOpts("events_full")),
     commandClickhouse(deleteOpts("events_core")),
-    commandLegacyEventsTable(deleteOpts("events")),
   ]);
 
   return true;
@@ -2434,8 +2453,8 @@ export async function getAgentGraphDataFromEventsTable(params: {
       e.name as name,
       e.start_time as start_time,
       e.end_time as end_time,
-      mapFromArrays(e.metadata_names, e.metadata_values)['langgraph_node'] AS node,
-      mapFromArrays(e.metadata_names, e.metadata_values)['langgraph_step'] AS step
+      mapFromArrays(arrayReverse(e.metadata_names), arrayReverse(e.metadata_values))['langgraph_node'] AS node,
+      mapFromArrays(arrayReverse(e.metadata_names), arrayReverse(e.metadata_values))['langgraph_step'] AS step
     FROM events_core e
     WHERE
       e.project_id = {projectId: String}
@@ -2527,7 +2546,6 @@ export const deleteEventsOlderThanDays = async (
   await Promise.all([
     commandClickhouse(deleteOpts("events_full")),
     commandClickhouse(deleteOpts("events_core")),
-    commandLegacyEventsTable(deleteOpts("events")),
   ]);
 
   return true;
@@ -2573,7 +2591,7 @@ export const getObservationsBatchIOFromEventsTable = async (opts: {
       e.span_id as id,
       ${inputSelect},
       ${outputSelect},
-      mapFromArrays(e.metadata_names, e.metadata_values) as metadata
+      mapFromArrays(arrayReverse(e.metadata_names), arrayReverse(e.metadata_values)) as metadata
     FROM ${tableName} e
     WHERE e.project_id = {projectId: String}
       AND e.span_id IN {observationIds: Array(String)}
@@ -2914,8 +2932,8 @@ export const getEventsForAnalyticsIntegrations = async function* (
       "e.usage_details['output'] as output_tokens",
       "e.usage_details['total'] as total_tokens",
       // Analytics integration session IDs from metadata (constructed from array columns)
-      "mapFromArrays(e.metadata_names, e.metadata_prefixes)['$posthog_session_id'] as posthog_session_id",
-      "mapFromArrays(e.metadata_names, e.metadata_prefixes)['$mixpanel_session_id'] as mixpanel_session_id",
+      "mapFromArrays(arrayReverse(e.metadata_names), arrayReverse(e.metadata_values))['$posthog_session_id'] as posthog_session_id",
+      "mapFromArrays(arrayReverse(e.metadata_names), arrayReverse(e.metadata_values))['$mixpanel_session_id'] as mixpanel_session_id",
     )
     .whereRaw(
       "e.start_time >= {minTimestamp: DateTime64(3)} AND e.start_time <= {maxTimestamp: DateTime64(3)}",
@@ -3070,9 +3088,9 @@ export const getAvgCostByEvaluatorIds = async (
   const builder = new EventsAggQueryBuilder({
     projectId,
     groupByColumn:
-      "mapFromArrays(e.metadata_names, e.metadata_values)['job_configuration_id']",
+      "mapFromArrays(arrayReverse(e.metadata_names), arrayReverse(e.metadata_values))['job_configuration_id']",
     selectExpression: [
-      "mapFromArrays(e.metadata_names, e.metadata_values)['job_configuration_id'] as evaluator_id",
+      "mapFromArrays(arrayReverse(e.metadata_names), arrayReverse(e.metadata_values))['job_configuration_id'] as evaluator_id",
       "avg(e.total_cost) as avg_cost",
       "count(*) as execution_count",
     ].join(", "),
@@ -3080,7 +3098,7 @@ export const getAvgCostByEvaluatorIds = async (
     .whereRaw("e.type = 'GENERATION'")
     .whereRaw("has(e.metadata_names, 'job_configuration_id')")
     .whereRaw(
-      "mapFromArrays(e.metadata_names, e.metadata_values)['job_configuration_id'] IN ({evaluatorIds: Array(String)})",
+      "mapFromArrays(arrayReverse(e.metadata_names), arrayReverse(e.metadata_values))['job_configuration_id'] IN ({evaluatorIds: Array(String)})",
       { evaluatorIds },
     )
     .whereRaw("e.start_time > today() - 7");
