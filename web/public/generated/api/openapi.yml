@@ -6102,19 +6102,19 @@ paths:
 
         A continuous evaluation defines **what** incoming data should be
         evaluated and **how prompt variables should be populated** from that
-        data. It references one exact evaluator version and deploys it against
-        live ingestion.
+        data.
 
 
-        Use this resource after selecting an evaluator version.
+        Use this resource after choosing an evaluator from the evaluator
+        endpoints.
 
 
         Key rules:
 
         - `target` must be `observation` or `experiment`
 
-        - `evaluatorId` must reference an existing evaluator version returned by
-        the evaluator endpoints
+        - `evaluatorId` must reference an existing evaluator returned by the
+        evaluator endpoints
 
         - every evaluator prompt variable must be mapped exactly once
 
@@ -6278,8 +6278,8 @@ paths:
         List continuous evaluations in the authenticated project.
 
 
-        Each item describes the effective deployment state of one evaluator
-        against live ingestion.
+        Each item describes one live evaluation rule and its effective runtime
+        status.
       operationId: unstable_continuousEvaluations_list
       tags:
         - UnstableContinuousEvaluations
@@ -6350,8 +6350,8 @@ paths:
         Get one continuous evaluation by its identifier.
 
 
-        Use this endpoint to inspect the current target, mapping, filters, and
-        effective runtime status.
+        Use this endpoint to inspect the current evaluator, target, mapping,
+        filters, and effective runtime status.
       operationId: unstable_continuousEvaluations_get
       tags:
         - UnstableContinuousEvaluations
@@ -6419,7 +6419,7 @@ paths:
 
         - enable or disable live execution
 
-        - switch to another exact evaluator version
+        - switch to another evaluator
 
         - adjust sampling
 
@@ -6436,7 +6436,7 @@ paths:
         target-specific configuration
 
         - if the resulting config is enabled, Langfuse re-validates that the
-        referenced evaluator can run
+        selected evaluator can run
       operationId: unstable_continuousEvaluations_update
       tags:
         - UnstableContinuousEvaluations
@@ -6572,35 +6572,38 @@ paths:
   /api/public/unstable/evaluators:
     post:
       description: >-
-        Create a project-owned evaluator version.
+        Create an evaluator in the authenticated project.
 
 
-        Evaluators are backed directly by versioned `EvalTemplate` rows.
-
-        The returned `id` is the identifier of one exact immutable evaluator
-        version.
+        Use evaluators to define **how** Langfuse should score data: the prompt,
+        the expected structured output, and the optional model configuration.
 
 
-        Create semantics:
+        Naming behavior:
 
-        - if the authenticated project has no evaluator family with this `name`,
-        Langfuse creates version `1`
+        - If this is a new evaluator name in your project, Langfuse creates
+        version `1`.
 
-        - if the authenticated project already has an evaluator family with this
-        `name`, Langfuse creates the next version in that family
-
-        - Langfuse-managed evaluators with the same name do **not** affect
-        project version numbering
+        - If the name already exists in your project, Langfuse creates the next
+        version and returns it.
 
 
         Recommended workflow:
 
-        1. Create or version the evaluator.
+        1. Create the evaluator.
 
         2. Read the returned `variables` array.
 
         3. Create one or more continuous evaluations that reference the returned
         `id`.
+
+
+        Important behavior:
+
+        - Continuous evaluations keep using the evaluator you selected.
+
+        - If you later create a newer version, update the continuous evaluation
+        to switch to it.
 
 
         Unstable API note:
@@ -6739,26 +6742,18 @@ paths:
                       temperature: 0
     get:
       description: >-
-        List the latest evaluator version per family that is visible to the
-        authenticated project.
-
-
-        Visibility rules:
-
-        - project-owned evaluator families where `projectId` matches the
-        authenticated project
-
-        - Langfuse-managed evaluator families where `projectId` is `null`
+        List the evaluators available to the authenticated project.
 
 
         Important behavior:
 
-        - this endpoint returns only the latest version per family
+        - This endpoint returns the latest version of each available evaluator.
 
-        - the returned `id` is still an exact evaluator version identifier
+        - Results can include evaluators from your project and Langfuse-managed
+        evaluators.
 
-        - a project-owned family and a managed family with the same `name` are
-        returned as separate items with different `scope` values
+        - If the same evaluator name exists in both places, both are returned as
+        separate items with different `scope` values.
       operationId: unstable_evaluators_list
       tags:
         - UnstableEvaluators
@@ -6826,21 +6821,19 @@ paths:
   /api/public/unstable/evaluators/{evaluatorId}:
     get:
       description: >-
-        Get one exact evaluator version by `id`.
+        Get one evaluator by `id`.
 
 
-        Use this endpoint when you want the precise prompt, output definition,
-        model configuration, and derived variables for a single evaluator
-        version before referencing it from a continuous evaluation.
+        Use this endpoint when you want the prompt, output definition, model
+        configuration, and derived variables for the evaluator you plan to use
+        in a continuous evaluation.
       operationId: unstable_evaluators_get
       tags:
         - UnstableEvaluators
       parameters:
         - name: evaluatorId
           in: path
-          description: >-
-            Exact evaluator version identifier returned by the evaluator
-            endpoints.
+          description: Evaluator identifier returned by the evaluator endpoints.
           required: true
           schema:
             type: string
@@ -11746,10 +11739,10 @@ components:
         - project
         - managed
       description: |-
-        Ownership scope of the evaluator family represented in list results.
+        Where an evaluator comes from.
 
-        - `project`: evaluator family owned by the authenticated project
-        - `managed`: Langfuse-managed evaluator family shared across projects
+        - `project`: created in your project
+        - `managed`: provided by Langfuse
     unstableContinuousEvaluationTarget:
       title: unstableContinuousEvaluationTarget
       type: string
@@ -11813,16 +11806,16 @@ components:
 
         If omitted, Langfuse uses the project's default evaluation model.
 
-        If provided, the model must be runnable for the project at creation or
-        update time.
+        If provided, the model must be available to the project when the
+        evaluator or continuous evaluation is enabled.
 
 
         To discover valid configured `provider` values for a project, call `GET
         /api/public/llm-connections` and read the `provider` field from the
         returned connections.
 
-        In practice, `provider` should match the provider name of an LLM
-        connection that already exists in the same project.
+        Use a `provider` value that matches one of the connections already
+        configured in the same project.
       properties:
         provider:
           type: string
@@ -11861,7 +11854,7 @@ components:
         exactly once.
 
         Use `jsonPath` only when the source field is a JSON object and you want
-        to project a nested value.
+        to extract a nested value.
       properties:
         variable:
           type: string
@@ -11905,8 +11898,8 @@ components:
         Each filter object follows the same filter schema used elsewhere in the
         Langfuse API.
 
-        The `column`, `operator`, and `value` fields depend on the selected
-        filter `type`.
+        The exact `column`, `operator`, and `value` fields depend on the
+        selected filter `type`.
 
 
         Common examples:
@@ -11920,16 +11913,16 @@ components:
 
         Target-specific notes:
 
-        - `observation` supports observation-oriented columns such as `type`,
-        `name`, `environment`, `level`, `version`, `traceName`, `userId`,
-        `sessionId`, `tags`, `metadata`, and `parentObservationId`.
+        - `observation` supports columns such as `type`, `name`, `environment`,
+        `level`, `version`, `traceName`, `userId`, `sessionId`, `tags`,
+        `metadata`, and `parentObservationId`.
 
         - `experiment` currently supports `datasetId`.
     unstableContinuousEvaluation:
       title: unstableContinuousEvaluation
       type: object
       description: |-
-        Live-ingestion deployment of an evaluator.
+        Live evaluation rule for incoming data.
 
         A continuous evaluation answers:
         - which evaluator should be used
@@ -11950,7 +11943,7 @@ components:
           example: answer-correctness-live
         evaluatorId:
           type: string
-          description: Exact evaluator version identifier.
+          description: Identifier of the evaluator this rule uses.
           example: evaltmpl_123
         target:
           $ref: '#/components/schemas/unstableContinuousEvaluationTarget'
@@ -11967,9 +11960,7 @@ components:
         pausedReason:
           type: string
           nullable: true
-          description: >-
-            Internal machine-readable reason when `status=paused`, otherwise
-            `null`.
+          description: Machine-readable reason when `status=paused`, otherwise `null`.
         pausedMessage:
           type: string
           nullable: true
@@ -12043,7 +12034,7 @@ components:
         Request body for creating a continuous evaluation.
 
         Checklist for agents and SDK clients:
-        - reference an existing evaluator version `id`
+        - reference an existing evaluator `id`
         - choose `target=observation` or `target=experiment`
         - provide a complete variable mapping for every evaluator variable
         - optionally narrow execution with `filter`
@@ -12055,7 +12046,7 @@ components:
           example: answer-correctness-live
         evaluatorId:
           type: string
-          description: Exact evaluator version identifier to deploy.
+          description: Identifier of the evaluator to use.
           example: evaltmpl_123
         target:
           $ref: '#/components/schemas/unstableContinuousEvaluationTarget'
@@ -12106,7 +12097,7 @@ components:
         evaluatorId:
           type: string
           nullable: true
-          description: Updated exact evaluator version identifier.
+          description: Updated evaluator identifier.
         target:
           $ref: '#/components/schemas/unstableContinuousEvaluationTarget'
           nullable: true
@@ -12342,7 +12333,7 @@ components:
       title: unstableEvaluator
       type: object
       description: >-
-        One exact immutable evaluator version.
+        One evaluator that can be used for scoring.
 
 
         An evaluator describes **how** to score data:
@@ -12361,21 +12352,21 @@ components:
       properties:
         id:
           type: string
-          description: Exact evaluator version identifier.
+          description: Identifier of this evaluator.
           example: evaltmpl_123
         name:
           type: string
-          description: Evaluator family name within its scope.
+          description: Evaluator name.
           example: answer-correctness
         version:
           type: integer
-          description: Version number within the evaluator family.
+          description: Version number of this evaluator.
           example: 2
         scope:
           $ref: '#/components/schemas/unstableEvaluatorScope'
           description: >-
-            Whether this evaluator belongs to the authenticated project or is
-            Langfuse-managed.
+            Where this evaluator comes from: your project or Langfuse-managed
+            defaults.
         type:
           $ref: '#/components/schemas/unstableEvaluatorType'
           description: Evaluator engine type. Currently always `llm_as_judge`.
@@ -12416,18 +12407,18 @@ components:
         continuousEvaluationCount:
           type: integer
           description: >-
-            Number of continuous evaluations in the project that currently
-            reference this exact evaluator version.
+            Number of continuous evaluations in the project that currently use
+            this evaluator.
           example: 0
         createdAt:
           type: string
           format: date-time
-          description: Timestamp when this exact evaluator version was created.
+          description: Timestamp when this evaluator was created.
           example: '2026-03-30T09:00:00.000Z'
         updatedAt:
           type: string
           format: date-time
-          description: Timestamp when this exact evaluator version was last updated.
+          description: Timestamp when this evaluator was last updated.
           example: '2026-03-30T09:00:00.000Z'
       required:
         - id
@@ -12458,25 +12449,19 @@ components:
       title: unstableCreateEvaluatorRequest
       type: object
       description: >-
-        Create a project-owned evaluator version.
+        Request body for creating an evaluator.
 
 
-        Important behavior:
-
-        - `name` controls project-local versioning
-
-        - repeating the same `name` creates the next project-owned version
-
-        - managed evaluators with the same `name` do not affect version
-        numbering
+        If the same `name` already exists in your project, Langfuse creates the
+        next version and returns it.
       properties:
         name:
           type: string
-          description: Evaluator family name within the authenticated project.
+          description: Evaluator name within the authenticated project.
           example: answer-correctness
         prompt:
           type: string
-          description: Prompt template for the evaluator.
+          description: Prompt template used by the evaluator.
           example: |
             You are grading an answer.
 
@@ -12488,7 +12473,7 @@ components:
 
             Return a score between 0 and 1.
         outputDefinition:
-          description: Structured output schema that the evaluator must return.
+          description: Structured output schema the evaluator must return.
         modelConfig:
           $ref: '#/components/schemas/unstableEvaluatorModelConfig'
           nullable: true

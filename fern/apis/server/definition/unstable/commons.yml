@@ -10,10 +10,10 @@ types:
 
   EvaluatorScope:
     docs: |
-      Ownership scope of the evaluator family represented in list results.
+      Where an evaluator comes from.
 
-      - `project`: evaluator family owned by the authenticated project
-      - `managed`: Langfuse-managed evaluator family shared across projects
+      - `project`: created in your project
+      - `managed`: provided by Langfuse
     enum:
       - project
       - managed
@@ -60,10 +60,10 @@ types:
       Optional explicit model configuration for an evaluator.
 
       If omitted, Langfuse uses the project's default evaluation model.
-      If provided, the model must be runnable for the project at creation or update time.
+      If provided, the model must be available to the project when the evaluator or continuous evaluation is enabled.
 
       To discover valid configured `provider` values for a project, call `GET /api/public/llm-connections` and read the `provider` field from the returned connections.
-      In practice, `provider` should match the provider name of an LLM connection that already exists in the same project.
+      Use a `provider` value that matches one of the connections already configured in the same project.
     properties:
       provider:
         type: string
@@ -89,7 +89,7 @@ types:
       Maps one evaluator prompt variable to one source field from the target object.
 
       Every variable extracted from the evaluator prompt must be mapped exactly once.
-      Use `jsonPath` only when the source field is a JSON object and you want to project a nested value.
+      Use `jsonPath` only when the source field is a JSON object and you want to extract a nested value.
     properties:
       variable:
         type: string
@@ -125,7 +125,7 @@ types:
       Filter condition used to decide whether a live-ingested target should be evaluated.
 
       Each filter object follows the same filter schema used elsewhere in the Langfuse API.
-      The `column`, `operator`, and `value` fields depend on the selected filter `type`.
+      The exact `column`, `operator`, and `value` fields depend on the selected filter `type`.
 
       Common examples:
       - Observation type filter:
@@ -136,7 +136,7 @@ types:
         `{ "type": "stringOptions", "column": "datasetId", "operator": "any of", "value": ["dataset-prod"] }`
 
       Target-specific notes:
-      - `observation` supports observation-oriented columns such as `type`, `name`, `environment`, `level`, `version`, `traceName`, `userId`, `sessionId`, `tags`, `metadata`, and `parentObservationId`.
+      - `observation` supports columns such as `type`, `name`, `environment`, `level`, `version`, `traceName`, `userId`, `sessionId`, `tags`, `metadata`, and `parentObservationId`.
       - `experiment` currently supports `datasetId`.
     type: map<string, unknown>
     examples:

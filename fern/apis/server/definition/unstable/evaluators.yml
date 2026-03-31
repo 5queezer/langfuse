@@ -10,20 +10,22 @@ service:
   endpoints:
     create:
       docs: |
-        Create a project-owned evaluator version.
+        Create an evaluator in the authenticated project.
 
-        Evaluators are backed directly by versioned `EvalTemplate` rows.
-        The returned `id` is the identifier of one exact immutable evaluator version.
+        Use evaluators to define **how** Langfuse should score data: the prompt, the expected structured output, and the optional model configuration.
 
-        Create semantics:
-        - if the authenticated project has no evaluator family with this `name`, Langfuse creates version `1`
-        - if the authenticated project already has an evaluator family with this `name`, Langfuse creates the next version in that family
-        - Langfuse-managed evaluators with the same name do **not** affect project version numbering
+        Naming behavior:
+        - If this is a new evaluator name in your project, Langfuse creates version `1`.
+        - If the name already exists in your project, Langfuse creates the next version and returns it.
 
         Recommended workflow:
-        1. Create or version the evaluator.
+        1. Create the evaluator.
         2. Read the returned `variables` array.
         3. Create one or more continuous evaluations that reference the returned `id`.
+
+        Important behavior:
+        - Continuous evaluations keep using the evaluator you selected.
+        - If you later create a newer version, update the continuous evaluation to switch to it.
 
         Unstable API note:
         - This surface may evolve while the underlying evaluation data model is being redesigned.
@@ -42,7 +44,7 @@ service:
         - errors.InternalServerError
       examples:
         - name: CreateEvaluatorVersion
-          docs: Create version 2 of an existing project-owned evaluator family named `answer-correctness`.
+          docs: Create a new version of an evaluator named `answer-correctness`.
           request:
             name: answer-correctness
             prompt: |
@@ -105,16 +107,12 @@ service:
 
     list:
       docs: |
-        List the latest evaluator version per family that is visible to the authenticated project.
-
-        Visibility rules:
-        - project-owned evaluator families where `projectId` matches the authenticated project
-        - Langfuse-managed evaluator families where `projectId` is `null`
+        List the evaluators available to the authenticated project.
 
         Important behavior:
-        - this endpoint returns only the latest version per family
-        - the returned `id` is still an exact evaluator version identifier
-        - a project-owned family and a managed family with the same `name` are returned as separate items with different `scope` values
+        - This endpoint returns the latest version of each available evaluator.
+        - Results can include evaluators from your project and Langfuse-managed evaluators.
+        - If the same evaluator name exists in both places, both are returned as separate items with different `scope` values.
       method: GET
       path: /evaluators
       request:
@@ -137,15 +135,15 @@ service:
 
     get:
       docs: |
-        Get one exact evaluator version by `id`.
+        Get one evaluator by `id`.
 
-        Use this endpoint when you want the precise prompt, output definition, model configuration, and derived variables for a single evaluator version before referencing it from a continuous evaluation.
+        Use this endpoint when you want the prompt, output definition, model configuration, and derived variables for the evaluator you plan to use in a continuous evaluation.
       method: GET
       path: /evaluators/{evaluatorId}
       path-parameters:
         evaluatorId:
           type: string
-          docs: Exact evaluator version identifier returned by the evaluator endpoints.
+          docs: Evaluator identifier returned by the evaluator endpoints.
       response: Evaluator
       errors:
         - errors.BadRequestError
@@ -159,7 +157,7 @@ service:
 types:
   Evaluator:
     docs: |
-      One exact immutable evaluator version.
+      One evaluator that can be used for scoring.
 
       An evaluator describes **how** to score data:
       - prompt
@@ -171,16 +169,16 @@ types:
     properties:
       id:
         type: string
-        docs: Exact evaluator version identifier.
+        docs: Identifier of this evaluator.
       name:
         type: string
-        docs: Evaluator family name within its scope.
+        docs: Evaluator name.
       version:
         type: integer
-        docs: Version number within the evaluator family.
+        docs: Version number of this evaluator.
       scope:
         type: commons.EvaluatorScope
-        docs: Whether this evaluator belongs to the authenticated project or is Langfuse-managed.
+        docs: "Where this evaluator comes from: your project or Langfuse-managed defaults."
       type:
         type: commons.EvaluatorType
         docs: Evaluator engine type. Currently always `llm_as_judge`.
@@ -201,13 +199,13 @@ types:
         docs: Explicit model configuration, or `null` when the project default evaluation model is used.
       continuousEvaluationCount:
         type: integer
-        docs: Number of continuous evaluations in the project that currently reference this exact evaluator version.
+        docs: Number of continuous evaluations in the project that currently use this evaluator.
       createdAt:
         type: datetime
-        docs: Timestamp when this exact evaluator version was created.
+        docs: Timestamp when this evaluator was created.
       updatedAt:
         type: datetime
-        docs: Timestamp when this exact evaluator version was last updated.
+        docs: Timestamp when this evaluator was last updated.
 
   Evaluators:
     properties:
@@ -218,22 +216,19 @@ types:
 
   CreateEvaluatorRequest:
     docs: |
-      Create a project-owned evaluator version.
+      Request body for creating an evaluator.
 
-      Important behavior:
-      - `name` controls project-local versioning
-      - repeating the same `name` creates the next project-owned version
-      - managed evaluators with the same `name` do not affect version numbering
+      If the same `name` already exists in your project, Langfuse creates the next version and returns it.
     properties:
       name:
         type: string
-        docs: Evaluator family name within the authenticated project.
+        docs: Evaluator name within the authenticated project.
       prompt:
         type: string
-        docs: Prompt template for the evaluator.
+        docs: Prompt template used by the evaluator.
       outputDefinition:
         type: unknown
-        docs: Structured output schema that the evaluator must return.
+        docs: Structured output schema the evaluator must return.
       modelConfig:
         type: optional<nullable<commons.EvaluatorModelConfig>>
         docs: Optional explicit model configuration. Omit or set to `null` to use the project default evaluation model.

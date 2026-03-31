@@ -12,13 +12,13 @@ service:
       docs: |
         Create a continuous evaluation.
 
-        A continuous evaluation defines **what** incoming data should be evaluated and **how prompt variables should be populated** from that data. It references one exact evaluator version and deploys it against live ingestion.
+        A continuous evaluation defines **what** incoming data should be evaluated and **how prompt variables should be populated** from that data.
 
-        Use this resource after selecting an evaluator version.
+        Use this resource after choosing an evaluator from the evaluator endpoints.
 
         Key rules:
         - `target` must be `observation` or `experiment`
-        - `evaluatorId` must reference an existing evaluator version returned by the evaluator endpoints
+        - `evaluatorId` must reference an existing evaluator returned by the evaluator endpoints
         - every evaluator prompt variable must be mapped exactly once
         - `expected_output` mappings are only valid for `target=experiment`
         - if `enabled=true`, Langfuse validates that the referenced evaluator can currently run
@@ -131,7 +131,7 @@ service:
       docs: |
         List continuous evaluations in the authenticated project.
 
-        Each item describes the effective deployment state of one evaluator against live ingestion.
+        Each item describes one live evaluation rule and its effective runtime status.
       method: GET
       path: /continuous-evaluations
       request:
@@ -156,7 +156,7 @@ service:
       docs: |
         Get one continuous evaluation by its identifier.
 
-        Use this endpoint to inspect the current target, mapping, filters, and effective runtime status.
+        Use this endpoint to inspect the current evaluator, target, mapping, filters, and effective runtime status.
       method: GET
       path: /continuous-evaluations/{continuousEvaluationId}
       path-parameters:
@@ -179,7 +179,7 @@ service:
 
         Typical uses:
         - enable or disable live execution
-        - switch to another exact evaluator version
+        - switch to another evaluator
         - adjust sampling
         - change filters
         - update variable mappings
@@ -187,7 +187,7 @@ service:
         Important behavior:
         - provide only the fields you want to change
         - changing `target`, `filter`, or `mapping` must still produce a valid target-specific configuration
-        - if the resulting config is enabled, Langfuse re-validates that the referenced evaluator can run
+        - if the resulting config is enabled, Langfuse re-validates that the selected evaluator can run
       method: PATCH
       path: /continuous-evaluations/{continuousEvaluationId}
       path-parameters:
@@ -230,7 +230,7 @@ service:
 types:
   ContinuousEvaluation:
     docs: |
-      Live-ingestion deployment of an evaluator.
+      Live evaluation rule for incoming data.
 
       A continuous evaluation answers:
       - which evaluator should be used
@@ -247,7 +247,7 @@ types:
         docs: Human-readable deployment name. This is independent from the evaluator name.
       evaluatorId:
         type: string
-        docs: Exact evaluator version identifier.
+        docs: Identifier of the evaluator this rule uses.
       target:
         type: commons.ContinuousEvaluationTarget
         docs: Target object type that should trigger scoring.
@@ -259,7 +259,7 @@ types:
         docs: Effective runtime status after Langfuse applies validation and blocking rules.
       pausedReason:
         type: nullable<string>
-        docs: Internal machine-readable reason when `status=paused`, otherwise `null`.
+        docs: Machine-readable reason when `status=paused`, otherwise `null`.
       pausedMessage:
         type: nullable<string>
         docs: Human-readable explanation when `status=paused`, otherwise `null`.
@@ -323,7 +323,7 @@ types:
       Request body for creating a continuous evaluation.
 
       Checklist for agents and SDK clients:
-      - reference an existing evaluator version `id`
+      - reference an existing evaluator `id`
       - choose `target=observation` or `target=experiment`
       - provide a complete variable mapping for every evaluator variable
       - optionally narrow execution with `filter`
@@ -334,7 +334,7 @@ types:
         docs: Human-readable deployment name.
       evaluatorId:
         type: string
-        docs: Exact evaluator version identifier to deploy.
+        docs: Identifier of the evaluator to use.
       target:
         type: commons.ContinuousEvaluationTarget
         docs: Target object type to evaluate.
@@ -363,7 +363,7 @@ types:
         docs: Updated deployment name.
       evaluatorId:
         type: optional<string>
-        docs: Updated exact evaluator version identifier.
+        docs: Updated evaluator identifier.
       target:
         type: optional<commons.ContinuousEvaluationTarget>
         docs: Updated target object type.
