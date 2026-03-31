@@ -6102,16 +6102,19 @@ paths:
 
         A continuous evaluation defines **what** incoming data should be
         evaluated and **how prompt variables should be populated** from that
-        data. It references an existing evaluator and deploys it against live
-        ingestion.
+        data. It references one exact evaluator version and deploys it against
+        live ingestion.
 
 
-        Use this resource after creating an evaluator.
+        Use this resource after selecting an evaluator version.
 
 
         Key rules:
 
         - `target` must be `observation` or `experiment`
+
+        - `evaluatorId` must reference an existing evaluator version returned by
+        the evaluator endpoints
 
         - every evaluator prompt variable must be mapped exactly once
 
@@ -6142,7 +6145,7 @@ paths:
                   value:
                     id: ceval_123
                     name: answer-correctness-live
-                    evaluatorId: eval_123
+                    evaluatorId: evaltmpl_123
                     target: observation
                     enabled: true
                     status: active
@@ -6164,7 +6167,7 @@ paths:
                   value:
                     id: ceval_456
                     name: experiment-expected-output-match
-                    evaluatorId: eval_456
+                    evaluatorId: evaltmpl_456
                     target: experiment
                     enabled: true
                     status: active
@@ -6237,7 +6240,7 @@ paths:
               CreateObservationContinuousEvaluation:
                 value:
                   name: answer-correctness-live
-                  evaluatorId: eval_123
+                  evaluatorId: evaltmpl_123
                   target: observation
                   enabled: true
                   sampling: 1
@@ -6255,7 +6258,7 @@ paths:
               CreateExperimentContinuousEvaluation:
                 value:
                   name: experiment-expected-output-match
-                  evaluatorId: eval_456
+                  evaluatorId: evaltmpl_456
                   target: experiment
                   enabled: true
                   sampling: 0.5
@@ -6416,7 +6419,7 @@ paths:
 
         - enable or disable live execution
 
-        - switch to another evaluator
+        - switch to another exact evaluator version
 
         - adjust sampling
 
@@ -6569,31 +6572,35 @@ paths:
   /api/public/unstable/evaluators:
     post:
       description: >-
-        Create a reusable evaluator definition.
+        Create a project-owned evaluator version.
 
 
-        Use this resource to define **how** Langfuse should score data. An
-        evaluator contains the prompt, output schema, and optional model
-        configuration, but it does **not** decide which live objects are
-        evaluated. To deploy an evaluator against ingested data, create a
-        `continuous-evaluation` separately.
+        Evaluators are backed directly by versioned `EvalTemplate` rows.
+
+        The returned `id` is the identifier of one exact immutable evaluator
+        version.
+
+
+        Create semantics:
+
+        - if the authenticated project has no evaluator family with this `name`,
+        Langfuse creates version `1`
+
+        - if the authenticated project already has an evaluator family with this
+        `name`, Langfuse creates the next version in that family
+
+        - Langfuse-managed evaluators with the same name do **not** affect
+        project version numbering
 
 
         Recommended workflow:
 
-        1. Create the evaluator.
+        1. Create or version the evaluator.
 
         2. Read the returned `variables` array.
 
-        3. Create one or more continuous evaluations that reference the
-        evaluator and map every variable.
-
-
-        Update behavior:
-
-        - The public API exposes evaluators as a single mutable resource.
-
-        - Internal versioning is intentionally hidden from clients.
+        3. Create one or more continuous evaluations that reference the returned
+        `id`.
 
 
         Unstable API note:
@@ -6612,13 +6619,12 @@ paths:
               schema:
                 $ref: '#/components/schemas/unstableEvaluator'
               examples:
-                CreateAnswerCorrectnessEvaluator:
+                CreateEvaluatorVersion:
                   value:
-                    id: eval_123
+                    id: evaltmpl_123
                     name: answer-correctness
-                    description: >-
-                      Scores whether the final answer is correct for the given
-                      input.
+                    version: 2
+                    scope: project
                     type: llm_as_judge
                     prompt: |
                       You are grading an answer.
@@ -6706,12 +6712,9 @@ paths:
             schema:
               $ref: '#/components/schemas/unstableCreateEvaluatorRequest'
             examples:
-              CreateAnswerCorrectnessEvaluator:
+              CreateEvaluatorVersion:
                 value:
                   name: answer-correctness
-                  description: >-
-                    Scores whether the final answer is correct for the given
-                    input.
                   prompt: |
                     You are grading an answer.
 
@@ -6736,11 +6739,26 @@ paths:
                       temperature: 0
     get:
       description: >-
-        List evaluators in the authenticated project.
+        List the latest evaluator version per family that is visible to the
+        authenticated project.
 
 
-        This endpoint returns the current public evaluator state only. It does
-        not expose internal evaluator version history.
+        Visibility rules:
+
+        - project-owned evaluator families where `projectId` matches the
+        authenticated project
+
+        - Langfuse-managed evaluator families where `projectId` is `null`
+
+
+        Important behavior:
+
+        - this endpoint returns only the latest version per family
+
+        - the returned `id` is still an exact evaluator version identifier
+
+        - a project-owned family and a managed family with the same `name` are
+        returned as separate items with different `scope` values
       operationId: unstable_evaluators_list
       tags:
         - UnstableEvaluators
@@ -6808,12 +6826,12 @@ paths:
   /api/public/unstable/evaluators/{evaluatorId}:
     get:
       description: >-
-        Get one evaluator by its stable public identifier.
+        Get one exact evaluator version by `id`.
 
 
-        Use this endpoint when you need the current prompt, output definition,
-        and derived variables before creating or updating a continuous
-        evaluation.
+        Use this endpoint when you want the precise prompt, output definition,
+        model configuration, and derived variables for a single evaluator
+        version before referencing it from a continuous evaluation.
       operationId: unstable_evaluators_get
       tags:
         - UnstableEvaluators
@@ -6821,7 +6839,7 @@ paths:
         - name: evaluatorId
           in: path
           description: >-
-            Stable public evaluator identifier returned by the evaluator
+            Exact evaluator version identifier returned by the evaluator
             endpoints.
           required: true
           schema:
@@ -6858,179 +6876,6 @@ paths:
           content:
             application/json:
               schema: {}
-        '429':
-          description: ''
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/unstablePublicApiError'
-        '500':
-          description: ''
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/unstablePublicApiError'
-      security:
-        - BasicAuth: []
-    patch:
-      description: >-
-        Update the current public state of an evaluator.
-
-
-        Typical uses:
-
-        - rename the evaluator
-
-        - refine the prompt
-
-        - change the output schema
-
-        - switch to a different evaluation model
-
-
-        Important behavior:
-
-        - Any provided fields replace the current values.
-
-        - Internal evaluator versioning remains hidden from API clients.
-
-        - If the resulting evaluator cannot run, the request fails with `422`
-        and `code=evaluator_preflight_failed`.
-      operationId: unstable_evaluators_update
-      tags:
-        - UnstableEvaluators
-      parameters:
-        - name: evaluatorId
-          in: path
-          description: Stable public evaluator identifier.
-          required: true
-          schema:
-            type: string
-      responses:
-        '200':
-          description: ''
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/unstableEvaluator'
-        '400':
-          description: ''
-          content:
-            application/json:
-              schema: {}
-        '401':
-          description: ''
-          content:
-            application/json:
-              schema: {}
-        '403':
-          description: ''
-          content:
-            application/json:
-              schema: {}
-        '404':
-          description: ''
-          content:
-            application/json:
-              schema: {}
-        '405':
-          description: ''
-          content:
-            application/json:
-              schema: {}
-        '409':
-          description: ''
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/unstablePublicApiError'
-        '422':
-          description: ''
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/unstablePublicApiError'
-        '429':
-          description: ''
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/unstablePublicApiError'
-        '500':
-          description: ''
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/unstablePublicApiError'
-      security:
-        - BasicAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/unstableUpdateEvaluatorRequest'
-    delete:
-      description: >-
-        Delete an evaluator.
-
-
-        Deletion is only allowed when no job configurations still reference the
-        evaluator.
-
-        This includes public continuous evaluations and any internal evaluation
-        jobs that reuse the evaluator template.
-
-        If the evaluator is still in use, the request fails with `409` and
-        `code=evaluator_in_use`.
-      operationId: unstable_evaluators_delete
-      tags:
-        - UnstableEvaluators
-      parameters:
-        - name: evaluatorId
-          in: path
-          description: Stable public evaluator identifier.
-          required: true
-          schema:
-            type: string
-      responses:
-        '200':
-          description: ''
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/unstableDeleteEvaluatorResponse'
-        '400':
-          description: ''
-          content:
-            application/json:
-              schema: {}
-        '401':
-          description: ''
-          content:
-            application/json:
-              schema: {}
-        '403':
-          description: ''
-          content:
-            application/json:
-              schema: {}
-        '404':
-          description: ''
-          content:
-            application/json:
-              schema: {}
-        '405':
-          description: ''
-          content:
-            application/json:
-              schema: {}
-        '409':
-          description: ''
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/unstablePublicApiError'
         '429':
           description: ''
           content:
@@ -11894,6 +11739,17 @@ components:
 
         The unstable public API currently supports only LLM-as-a-judge
         evaluators.
+    unstableEvaluatorScope:
+      title: unstableEvaluatorScope
+      type: string
+      enum:
+        - project
+        - managed
+      description: |-
+        Ownership scope of the evaluator family represented in list results.
+
+        - `project`: evaluator family owned by the authenticated project
+        - `managed`: Langfuse-managed evaluator family shared across projects
     unstableContinuousEvaluationTarget:
       title: unstableContinuousEvaluationTarget
       type: string
@@ -12094,8 +11950,8 @@ components:
           example: answer-correctness-live
         evaluatorId:
           type: string
-          description: Referenced evaluator identifier.
-          example: eval_123
+          description: Exact evaluator version identifier.
+          example: evaltmpl_123
         target:
           $ref: '#/components/schemas/unstableContinuousEvaluationTarget'
           description: Target object type that should trigger scoring.
@@ -12187,7 +12043,7 @@ components:
         Request body for creating a continuous evaluation.
 
         Checklist for agents and SDK clients:
-        - reference an existing `evaluatorId`
+        - reference an existing evaluator version `id`
         - choose `target=observation` or `target=experiment`
         - provide a complete variable mapping for every evaluator variable
         - optionally narrow execution with `filter`
@@ -12199,8 +12055,8 @@ components:
           example: answer-correctness-live
         evaluatorId:
           type: string
-          description: Identifier of the evaluator to deploy.
-          example: eval_123
+          description: Exact evaluator version identifier to deploy.
+          example: evaltmpl_123
         target:
           $ref: '#/components/schemas/unstableContinuousEvaluationTarget'
           description: Target object type to evaluate.
@@ -12250,7 +12106,7 @@ components:
         evaluatorId:
           type: string
           nullable: true
-          description: Updated evaluator identifier.
+          description: Updated exact evaluator version identifier.
         target:
           $ref: '#/components/schemas/unstableContinuousEvaluationTarget'
           nullable: true
@@ -12486,7 +12342,7 @@ components:
       title: unstableEvaluator
       type: object
       description: >-
-        Reusable scoring definition.
+        One exact immutable evaluator version.
 
 
         An evaluator describes **how** to score data:
@@ -12505,16 +12361,21 @@ components:
       properties:
         id:
           type: string
-          description: Stable public evaluator identifier.
-          example: eval_123
+          description: Exact evaluator version identifier.
+          example: evaltmpl_123
         name:
           type: string
-          description: Project-scoped evaluator name. Must be unique within the project.
+          description: Evaluator family name within its scope.
           example: answer-correctness
-        description:
-          type: string
-          nullable: true
-          description: Optional human-readable description of what the evaluator measures.
+        version:
+          type: integer
+          description: Version number within the evaluator family.
+          example: 2
+        scope:
+          $ref: '#/components/schemas/unstableEvaluatorScope'
+          description: >-
+            Whether this evaluator belongs to the authenticated project or is
+            Langfuse-managed.
         type:
           $ref: '#/components/schemas/unstableEvaluatorType'
           description: Evaluator engine type. Currently always `llm_as_judge`.
@@ -12529,6 +12390,8 @@ components:
 
             Output:
             {{output}}
+
+            Return a score between 0 and 1.
         variables:
           type: array
           items:
@@ -12554,21 +12417,23 @@ components:
           type: integer
           description: >-
             Number of continuous evaluations in the project that currently
-            reference this evaluator.
-          example: 2
+            reference this exact evaluator version.
+          example: 0
         createdAt:
           type: string
           format: date-time
-          description: Timestamp when the public evaluator resource was first created.
+          description: Timestamp when this exact evaluator version was created.
           example: '2026-03-30T09:00:00.000Z'
         updatedAt:
           type: string
           format: date-time
-          description: Timestamp when the public evaluator resource was last updated.
-          example: '2026-03-30T09:15:00.000Z'
+          description: Timestamp when this exact evaluator version was last updated.
+          example: '2026-03-30T09:00:00.000Z'
       required:
         - id
         - name
+        - version
+        - scope
         - type
         - prompt
         - variables
@@ -12579,44 +12444,39 @@ components:
     unstableEvaluators:
       title: unstableEvaluators
       type: object
-      description: Paginated list of evaluators.
       properties:
         data:
           type: array
           items:
             $ref: '#/components/schemas/unstableEvaluator'
-          description: Evaluators in the current page.
         meta:
           $ref: '#/components/schemas/utilsMetaResponse'
-          description: Standard pagination metadata.
       required:
         - data
         - meta
     unstableCreateEvaluatorRequest:
       title: unstableCreateEvaluatorRequest
       type: object
-      description: |-
-        Request body for creating an evaluator.
+      description: >-
+        Create a project-owned evaluator version.
 
-        Minimal pattern:
-        - set `name`
-        - write a prompt with one or more `{{variables}}`
-        - define the expected structured output
-        - optionally pin a specific model configuration
+
+        Important behavior:
+
+        - `name` controls project-local versioning
+
+        - repeating the same `name` creates the next project-owned version
+
+        - managed evaluators with the same `name` do not affect version
+        numbering
       properties:
         name:
           type: string
-          description: Unique evaluator name within the project.
+          description: Evaluator family name within the authenticated project.
           example: answer-correctness
-        description:
-          type: string
-          nullable: true
-          description: Optional human-readable description.
         prompt:
           type: string
-          description: >-
-            Prompt template. Variables are derived automatically from
-            `{{variable}}` placeholders.
+          description: Prompt template for the evaluator.
           example: |
             You are grading an answer.
 
@@ -12628,73 +12488,17 @@ components:
 
             Return a score between 0 and 1.
         outputDefinition:
-          description: Structured output schema the evaluator must return.
+          description: Structured output schema that the evaluator must return.
         modelConfig:
           $ref: '#/components/schemas/unstableEvaluatorModelConfig'
           nullable: true
           description: >-
-            Optional explicit model configuration. If omitted, the project
-            default evaluation model is used.
+            Optional explicit model configuration. Omit or set to `null` to use
+            the project default evaluation model.
       required:
         - name
         - prompt
         - outputDefinition
-    unstableUpdateEvaluatorRequest:
-      title: unstableUpdateEvaluatorRequest
-      type: object
-      description: >-
-        Partial update body for an evaluator.
-
-
-        Provide only the fields you want to change.
-
-        Omit any field you want to leave unchanged.
-
-        Only `description` and `modelConfig` accept `null` to clear their
-        current value.
-
-        Do not send `null` for `name`, `prompt`, or `outputDefinition`; omit
-        those fields instead.
-
-        An empty body is rejected.
-      properties:
-        name:
-          type: string
-          nullable: true
-          description: >-
-            New unique evaluator name. Omit to leave unchanged. `null` is not
-            allowed.
-        description:
-          type: string
-          nullable: true
-          description: Updated description, or `null` to clear it.
-        prompt:
-          type: string
-          nullable: true
-          description: >-
-            Updated prompt template. Omit to leave unchanged. `null` is not
-            allowed. Variables will be re-derived from the new prompt.
-        outputDefinition:
-          nullable: true
-          description: >-
-            Updated structured output schema. Omit to leave unchanged. `null` is
-            not allowed.
-        modelConfig:
-          $ref: '#/components/schemas/unstableEvaluatorModelConfig'
-          nullable: true
-          description: >-
-            Updated explicit model configuration, or `null` to fall back to the
-            project default evaluation model.
-    unstableDeleteEvaluatorResponse:
-      title: unstableDeleteEvaluatorResponse
-      type: object
-      description: Confirmation response returned after successful deletion.
-      properties:
-        message:
-          type: string
-          description: Always `Evaluator successfully deleted`.
-      required:
-        - message
     utilsMetaResponse:
       title: utilsMetaResponse
       type: object

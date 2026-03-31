@@ -12,12 +12,13 @@ service:
       docs: |
         Create a continuous evaluation.
 
-        A continuous evaluation defines **what** incoming data should be evaluated and **how prompt variables should be populated** from that data. It references an existing evaluator and deploys it against live ingestion.
+        A continuous evaluation defines **what** incoming data should be evaluated and **how prompt variables should be populated** from that data. It references one exact evaluator version and deploys it against live ingestion.
 
-        Use this resource after creating an evaluator.
+        Use this resource after selecting an evaluator version.
 
         Key rules:
         - `target` must be `observation` or `experiment`
+        - `evaluatorId` must reference an existing evaluator version returned by the evaluator endpoints
         - every evaluator prompt variable must be mapped exactly once
         - `expected_output` mappings are only valid for `target=experiment`
         - if `enabled=true`, Langfuse validates that the referenced evaluator can currently run
@@ -43,7 +44,7 @@ service:
           docs: Deploy an evaluator to score live generations only.
           request:
             name: answer-correctness-live
-            evaluatorId: eval_123
+            evaluatorId: evaltmpl_123
             target: observation
             enabled: true
             sampling: 1
@@ -62,7 +63,7 @@ service:
             body:
               id: ceval_123
               name: answer-correctness-live
-              evaluatorId: eval_123
+              evaluatorId: evaltmpl_123
               target: observation
               enabled: true
               status: active
@@ -86,7 +87,7 @@ service:
           docs: Deploy an evaluator to compare experiment outputs against expected outputs.
           request:
             name: experiment-expected-output-match
-            evaluatorId: eval_456
+            evaluatorId: evaltmpl_456
             target: experiment
             enabled: true
             sampling: 0.5
@@ -105,7 +106,7 @@ service:
             body:
               id: ceval_456
               name: experiment-expected-output-match
-              evaluatorId: eval_456
+              evaluatorId: evaltmpl_456
               target: experiment
               enabled: true
               status: active
@@ -178,7 +179,7 @@ service:
 
         Typical uses:
         - enable or disable live execution
-        - switch to another evaluator
+        - switch to another exact evaluator version
         - adjust sampling
         - change filters
         - update variable mappings
@@ -246,7 +247,7 @@ types:
         docs: Human-readable deployment name. This is independent from the evaluator name.
       evaluatorId:
         type: string
-        docs: Referenced evaluator identifier.
+        docs: Exact evaluator version identifier.
       target:
         type: commons.ContinuousEvaluationTarget
         docs: Target object type that should trigger scoring.
@@ -286,7 +287,7 @@ types:
       - value:
           id: ceval_123
           name: answer-correctness-live
-          evaluatorId: eval_123
+          evaluatorId: evaltmpl_123
           target: observation
           enabled: true
           status: active
@@ -322,7 +323,7 @@ types:
       Request body for creating a continuous evaluation.
 
       Checklist for agents and SDK clients:
-      - reference an existing `evaluatorId`
+      - reference an existing evaluator version `id`
       - choose `target=observation` or `target=experiment`
       - provide a complete variable mapping for every evaluator variable
       - optionally narrow execution with `filter`
@@ -333,7 +334,7 @@ types:
         docs: Human-readable deployment name.
       evaluatorId:
         type: string
-        docs: Identifier of the evaluator to deploy.
+        docs: Exact evaluator version identifier to deploy.
       target:
         type: commons.ContinuousEvaluationTarget
         docs: Target object type to evaluate.
@@ -362,7 +363,7 @@ types:
         docs: Updated deployment name.
       evaluatorId:
         type: optional<string>
-        docs: Updated evaluator identifier.
+        docs: Updated exact evaluator version identifier.
       target:
         type: optional<commons.ContinuousEvaluationTarget>
         docs: Updated target object type.

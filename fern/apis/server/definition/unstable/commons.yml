@@ -8,6 +8,16 @@ types:
     enum:
       - llm_as_judge
 
+  EvaluatorScope:
+    docs: |
+      Ownership scope of the evaluator family represented in list results.
+
+      - `project`: evaluator family owned by the authenticated project
+      - `managed`: Langfuse-managed evaluator family shared across projects
+    enum:
+      - project
+      - managed
+
   ContinuousEvaluationTarget:
     docs: |
       The ingestion object type that should trigger evaluation runs.

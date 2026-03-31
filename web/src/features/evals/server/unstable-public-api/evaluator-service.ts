@@ -1,154 +1,34 @@
-import { randomUUID } from "node:crypto";
-import {
-  extractVariables,
-  LangfuseNotFoundError,
-  observationVariableMappingList,
-} from "@langfuse/shared";
+import { extractVariables } from "@langfuse/shared";
 import { Prisma, prisma } from "@langfuse/shared/src/db";
-import type {
-  PatchUnstableEvaluatorBodyType,
-  PostUnstableEvaluatorBodyType,
-} from "@/src/features/public-api/types/unstable-evaluators";
-import {
-  parseStoredOutputDefinition,
-  toApiEvaluator,
-  toApiModelConfig,
-  toStoredModelConfig,
-} from "./adapters";
+import type { PostUnstableEvaluatorBodyType } from "@/src/features/public-api/types/unstable-evaluators";
+import { toApiEvaluator, toStoredModelConfig } from "./adapters";
 import {
   countContinuousEvaluationsForEvaluator,
   countContinuousEvaluationsForEvaluatorIds,
-  findEvaluatorTemplateVersionsOrThrow,
-  listPublicEvaluatorTemplateGroups,
+  findPublicEvaluatorTemplateOrThrow,
+  listPublicEvaluatorTemplates,
 } from "./queries";
-import {
-  assertEvaluatorDefinitionCanRunForPublicApi,
-  assertEvaluatorNameIsAvailable,
-} from "./validation";
+import { assertEvaluatorDefinitionCanRunForPublicApi } from "./validation";
 import { createUnstablePublicApiError } from "@/src/features/public-api/server/unstable-public-api-error-contract";
-
-async function loadLockedEvaluatorTemplatesOrThrow(params: {
-  tx: Prisma.TransactionClient;
-  projectId: string;
-  evaluatorId: string;
-}) {
-  const lockedTemplateIds = await params.tx.$queryRaw<Array<{ id: string }>>(
-    Prisma.sql`
-      SELECT id
-      FROM eval_templates
-      WHERE
-        project_id = ${params.projectId}
-        AND evaluator_id = ${params.evaluatorId}
-      ORDER BY version ASC
-      FOR UPDATE
-    `,
-  );
-
-  if (lockedTemplateIds.length === 0) {
-    throw new LangfuseNotFoundError(
-      "Evaluator not found within authorized project",
-    );
-  }
-
-  return params.tx.evalTemplate.findMany({
-    where: {
-      id: {
-        in: lockedTemplateIds.map((row) => row.id),
-      },
-    },
-    orderBy: {
-      version: "asc",
-    },
-  });
-}
-
-function assertReferencedJobConfigurationsSupportVariables(params: {
-  jobConfigurations: Array<{
-    id: string;
-    scoreName: string;
-    variableMapping: unknown;
-  }>;
-  evaluatorVariables: string[];
-}) {
-  const evaluatorVariableSet = new Set(params.evaluatorVariables);
-
-  for (const config of params.jobConfigurations) {
-    const parsedMappings = observationVariableMappingList.safeParse(
-      config.variableMapping,
-    );
-
-    if (!parsedMappings.success) {
-      throw createUnstablePublicApiError({
-        httpCode: 409,
-        code: "conflict",
-        message: `Evaluator cannot be updated because job configuration "${config.scoreName}" has corrupted variable mappings`,
-      });
-    }
-
-    const mappedVariables = new Set<string>();
-    const duplicateVariables = new Set<string>();
-
-    for (const mapping of parsedMappings.data) {
-      if (mappedVariables.has(mapping.templateVariable)) {
-        duplicateVariables.add(mapping.templateVariable);
-      }
-      mappedVariables.add(mapping.templateVariable);
-    }
-
-    const unsupportedVariables = Array.from(mappedVariables).filter(
-      (variable) => !evaluatorVariableSet.has(variable),
-    );
-    const missingVariables = params.evaluatorVariables.filter(
-      (variable) => !mappedVariables.has(variable),
-    );
-
-    if (
-      duplicateVariables.size > 0 ||
-      unsupportedVariables.length > 0 ||
-      missingVariables.length > 0
-    ) {
-      throw createUnstablePublicApiError({
-        httpCode: 409,
-        code: "conflict",
-        message: `Evaluator cannot be updated because job configuration "${config.scoreName}" would have invalid variable mappings after this change`,
-        details: {
-          variables: Array.from(
-            new Set([
-              ...Array.from(duplicateVariables),
-              ...unsupportedVariables,
-              ...missingVariables,
-            ]),
-          ),
-        },
-      });
-    }
-  }
-}
+import type { StoredPublicEvaluatorTemplate } from "./types";
 
 export async function listPublicEvaluators(params: {
   projectId: string;
   page: number;
   limit: number;
 }) {
-  const { groups, totalItems } =
-    await listPublicEvaluatorTemplateGroups(params);
-  const evaluatorIds = groups
-    .map((group) => group[group.length - 1]?.evaluatorId)
-    .filter((evaluatorId): evaluatorId is string => Boolean(evaluatorId));
+  const { templates, totalItems } = await listPublicEvaluatorTemplates(params);
   const continuousEvaluationCounts =
     await countContinuousEvaluationsForEvaluatorIds({
       projectId: params.projectId,
-      evaluatorIds,
+      evaluatorIds: templates.map((template) => template.id),
     });
 
   return {
-    data: groups.map((templates) =>
+    data: templates.map((template) =>
       toApiEvaluator({
-        templates,
-        continuousEvaluationCount:
-          continuousEvaluationCounts[
-            templates[templates.length - 1]!.evaluatorId as string
-          ] ?? 0,
+        template,
+        continuousEvaluationCount: continuousEvaluationCounts[template.id] ?? 0,
       }),
     ),
     meta: {
@@ -164,12 +44,12 @@ export async function getPublicEvaluator(params: {
   projectId: string;
   evaluatorId: string;
 }) {
-  const templates = await findEvaluatorTemplateVersionsOrThrow(params);
+  const template = await findPublicEvaluatorTemplateOrThrow(params);
   const continuousEvaluationCount =
     await countContinuousEvaluationsForEvaluator(params);
 
   return toApiEvaluator({
-    templates,
+    template,
     continuousEvaluationCount,
   });
 }
@@ -189,201 +69,54 @@ export async function createPublicEvaluator(params: {
     },
   });
 
-  return prisma.$transaction(async (tx) => {
-    await assertEvaluatorNameIsAvailable({
-      client: tx,
-      projectId: params.projectId,
-      name: params.input.name,
-    });
+  try {
+    const template = await prisma.$transaction(async (tx) => {
+      const latestProjectTemplate = await tx.evalTemplate.findFirst({
+        where: {
+          projectId: params.projectId,
+          name: params.input.name,
+        },
+        orderBy: {
+          version: "desc",
+        },
+        select: {
+          version: true,
+        },
+      });
+      const modelConfig = toStoredModelConfig(params.input.modelConfig);
 
-    const evaluatorId = randomUUID();
-    const variables = extractVariables(params.input.prompt);
-    const modelConfig = toStoredModelConfig(params.input.modelConfig);
-
-    await tx.evalTemplate.create({
-      data: {
-        projectId: params.projectId,
-        evaluatorId,
-        name: params.input.name,
-        description: params.input.description ?? null,
-        version: 1,
-        prompt: params.input.prompt,
-        provider: modelConfig.provider,
-        model: modelConfig.model,
-        modelParams: modelConfig.modelParams,
-        vars: variables,
-        outputDefinition: params.input.outputDefinition,
-      },
-    });
-
-    const templates = await findEvaluatorTemplateVersionsOrThrow({
-      client: tx,
-      projectId: params.projectId,
-      evaluatorId,
+      return tx.evalTemplate.create({
+        data: {
+          projectId: params.projectId,
+          name: params.input.name,
+          version: (latestProjectTemplate?.version ?? 0) + 1,
+          prompt: params.input.prompt,
+          provider: modelConfig.provider,
+          model: modelConfig.model,
+          modelParams: modelConfig.modelParams,
+          vars: extractVariables(params.input.prompt),
+          outputDefinition: params.input.outputDefinition,
+        },
+      });
     });
 
     return toApiEvaluator({
-      templates,
+      template: template as StoredPublicEvaluatorTemplate,
       continuousEvaluationCount: 0,
     });
-  });
-}
-
-export async function updatePublicEvaluator(params: {
-  projectId: string;
-  evaluatorId: string;
-  input: PatchUnstableEvaluatorBodyType;
-}) {
-  const templates = await findEvaluatorTemplateVersionsOrThrow({
-    projectId: params.projectId,
-    evaluatorId: params.evaluatorId,
-  });
-  const latestTemplate = templates[templates.length - 1]!;
-  const nextName = params.input.name ?? latestTemplate.name;
-  const nextPrompt = params.input.prompt ?? latestTemplate.prompt;
-  const requestedModelConfig =
-    params.input.modelConfig === undefined
-      ? toApiModelConfig(latestTemplate)
-      : params.input.modelConfig;
-  const nextModelConfig = toStoredModelConfig(requestedModelConfig);
-  const nextOutputDefinition =
-    params.input.outputDefinition ??
-    parseStoredOutputDefinition(latestTemplate);
-
-  await assertEvaluatorDefinitionCanRunForPublicApi({
-    projectId: params.projectId,
-    template: {
-      name: nextName,
-      provider: nextModelConfig.provider,
-      model: nextModelConfig.model,
-      modelParams: nextModelConfig.modelParams,
-      outputDefinition: nextOutputDefinition,
-    },
-  });
-
-  return prisma.$transaction(async (tx) => {
-    const currentTemplates = await loadLockedEvaluatorTemplatesOrThrow({
-      tx,
-      projectId: params.projectId,
-      evaluatorId: params.evaluatorId,
-    });
-    const currentLatestTemplate =
-      currentTemplates[currentTemplates.length - 1]!;
-
-    if (currentLatestTemplate.id !== latestTemplate.id) {
+  } catch (error) {
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === "P2002"
+    ) {
       throw createUnstablePublicApiError({
         httpCode: 409,
         code: "conflict",
-        message: "Evaluator changed during update. Retry the request.",
-      });
-    }
-
-    await assertEvaluatorNameIsAvailable({
-      client: tx,
-      projectId: params.projectId,
-      name: nextName,
-      evaluatorId: params.evaluatorId,
-    });
-
-    const nextVariables = extractVariables(nextPrompt);
-    const referencedJobConfigurations = await tx.jobConfiguration.findMany({
-      where: {
-        projectId: params.projectId,
-        evalTemplateId: {
-          in: currentTemplates.map((template) => template.id),
-        },
-      },
-      select: {
-        id: true,
-        scoreName: true,
-        variableMapping: true,
-      },
-    });
-
-    assertReferencedJobConfigurationsSupportVariables({
-      jobConfigurations: referencedJobConfigurations,
-      evaluatorVariables: nextVariables,
-    });
-
-    const createdTemplate = await tx.evalTemplate.create({
-      data: {
-        projectId: params.projectId,
-        evaluatorId: params.evaluatorId,
-        name: nextName,
-        description:
-          params.input.description !== undefined
-            ? params.input.description
-            : latestTemplate.description,
-        version: currentLatestTemplate.version + 1,
-        prompt: nextPrompt,
-        provider: nextModelConfig.provider,
-        model: nextModelConfig.model,
-        modelParams: nextModelConfig.modelParams,
-        vars: nextVariables,
-        outputDefinition: nextOutputDefinition,
-      },
-    });
-
-    await tx.jobConfiguration.updateMany({
-      where: {
-        projectId: params.projectId,
-        evalTemplateId: {
-          in: currentTemplates.map((template) => template.id),
-        },
-      },
-      data: {
-        evalTemplateId: createdTemplate.id,
-      },
-    });
-
-    const continuousEvaluationCount =
-      await countContinuousEvaluationsForEvaluator({
-        client: tx,
-        projectId: params.projectId,
-        evaluatorId: params.evaluatorId,
-      });
-
-    return toApiEvaluator({
-      templates: [...currentTemplates, createdTemplate],
-      continuousEvaluationCount,
-    });
-  });
-}
-
-export async function deletePublicEvaluator(params: {
-  projectId: string;
-  evaluatorId: string;
-}) {
-  await prisma.$transaction(async (tx) => {
-    const templates = await loadLockedEvaluatorTemplatesOrThrow({
-      tx,
-      projectId: params.projectId,
-      evaluatorId: params.evaluatorId,
-    });
-    const referencingJobConfigurationCount = await tx.jobConfiguration.count({
-      where: {
-        projectId: params.projectId,
-        evalTemplateId: {
-          in: templates.map((template) => template.id),
-        },
-      },
-    });
-
-    if (referencingJobConfigurationCount > 0) {
-      throw createUnstablePublicApiError({
-        httpCode: 409,
-        code: "evaluator_in_use",
         message:
-          "Evaluator cannot be deleted while job configurations still reference it",
+          "Evaluator version changed during creation. Retry the request.",
       });
     }
 
-    await tx.evalTemplate.deleteMany({
-      where: {
-        id: {
-          in: templates.map((template) => template.id),
-        },
-      },
-    });
-  });
+    throw error;
+  }
 }

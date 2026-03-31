@@ -915,10 +915,8 @@ model EvalTemplate {
   project   Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   name        String
-  description String?
   version     Int
   prompt      String
-  evaluatorId String? @map("evaluator_id")
 
   partner String? // e.g. "ragas", describes the partner that created the template
 
@@ -932,7 +930,6 @@ model EvalTemplate {
 
   @@unique([projectId, name, version])
   @@index([projectId, id])
-  @@index([projectId, evaluatorId])
   @@map("eval_templates")
 }
 

@@ -14,7 +14,7 @@ jest.mock("@langfuse/shared/src/db", () => {
         findMany: jest.fn(),
       },
       jobConfiguration: {
-        findMany: jest.fn(),
+        groupBy: jest.fn(),
       },
     },
   };
@@ -23,54 +23,42 @@ jest.mock("@langfuse/shared/src/db", () => {
 import { prisma } from "@langfuse/shared/src/db";
 import {
   countContinuousEvaluationsForEvaluatorIds,
-  listPublicEvaluatorTemplateGroups,
+  listPublicEvaluatorTemplates,
 } from "@/src/features/evals/server/unstable-public-api/queries";
 
 const mockQueryRaw = prisma.$queryRaw as jest.Mock;
 const mockEvalTemplateFindMany = prisma.evalTemplate.findMany as jest.Mock;
-const mockJobConfigurationFindMany = prisma.jobConfiguration
-  .findMany as jest.Mock;
+const mockJobConfigurationGroupBy = prisma.jobConfiguration
+  .groupBy as jest.Mock;
 
 describe("unstable public eval queries", () => {
   beforeEach(() => {
     jest.clearAllMocks();
   });
 
-  it("paginates evaluator identities before loading template versions", async () => {
+  it("paginates latest evaluator versions per family before loading exact templates", async () => {
     mockQueryRaw
       .mockResolvedValueOnce([
-        {
-          evaluatorId: "eval_2",
-          latestUpdatedAt: new Date("2026-03-30T10:00:00.000Z"),
-        },
-        {
-          evaluatorId: "eval_1",
-          latestUpdatedAt: new Date("2026-03-30T09:00:00.000Z"),
-        },
+        { id: "tmpl_project_v2" },
+        { id: "tmpl_managed_v7" },
       ])
       .mockResolvedValueOnce([{ count: 3n }]);
     mockEvalTemplateFindMany.mockResolvedValueOnce([
       {
-        id: "tmpl_1",
-        projectId: "project_123",
-        evaluatorId: "eval_1",
-        version: 1,
+        id: "tmpl_managed_v7",
+        projectId: null,
+        name: "Answer correctness",
+        version: 7,
       },
       {
-        id: "tmpl_2",
+        id: "tmpl_project_v2",
         projectId: "project_123",
-        evaluatorId: "eval_1",
+        name: "Answer correctness",
         version: 2,
-      },
-      {
-        id: "tmpl_3",
-        projectId: "project_123",
-        evaluatorId: "eval_2",
-        version: 1,
       },
     ]);
 
-    const result = await listPublicEvaluatorTemplateGroups({
+    const result = await listPublicEvaluatorTemplates({
       projectId: "project_123",
       page: 2,
       limit: 2,
@@ -79,30 +67,63 @@ describe("unstable public eval queries", () => {
     expect(mockQueryRaw).toHaveBeenCalledTimes(2);
     expect(mockEvalTemplateFindMany).toHaveBeenCalledWith({
       where: {
-        projectId: "project_123",
-        evaluatorId: {
-          in: ["eval_2", "eval_1"],
+        id: {
+          in: ["tmpl_project_v2", "tmpl_managed_v7"],
         },
       },
-      orderBy: [{ evaluatorId: "asc" }, { version: "asc" }],
     });
     expect(result.totalItems).toBe(3);
-    expect(result.groups.map((group) => group[0]?.evaluatorId)).toEqual([
-      "eval_2",
-      "eval_1",
-    ]);
-    expect(result.groups[1]?.map((template) => template.version)).toEqual([
-      1, 2,
+    expect(result.templates.map((template) => template.id)).toEqual([
+      "tmpl_project_v2",
+      "tmpl_managed_v7",
     ]);
   });
 
-  it("skips the count query lookup when no evaluator ids are requested", async () => {
+  it("skips the groupBy lookup when no evaluator ids are requested", async () => {
     const result = await countContinuousEvaluationsForEvaluatorIds({
       projectId: "project_123",
       evaluatorIds: [],
     });
 
     expect(result).toEqual({});
-    expect(mockJobConfigurationFindMany).not.toHaveBeenCalled();
+    expect(mockJobConfigurationGroupBy).not.toHaveBeenCalled();
+  });
+
+  it("counts continuous evaluations by exact evaluator template id", async () => {
+    mockJobConfigurationGroupBy.mockResolvedValueOnce([
+      {
+        evalTemplateId: "tmpl_project_v2",
+        _count: { _all: 2 },
+      },
+      {
+        evalTemplateId: "tmpl_managed_v7",
+        _count: { _all: 1 },
+      },
+    ]);
+
+    const result = await countContinuousEvaluationsForEvaluatorIds({
+      projectId: "project_123",
+      evaluatorIds: ["tmpl_project_v2", "tmpl_managed_v7"],
+    });
+
+    expect(mockJobConfigurationGroupBy).toHaveBeenCalledWith({
+      by: ["evalTemplateId"],
+      where: {
+        projectId: "project_123",
+        targetObject: {
+          in: ["event", "experiment"],
+        },
+        evalTemplateId: {
+          in: ["tmpl_project_v2", "tmpl_managed_v7"],
+        },
+      },
+      _count: {
+        _all: true,
+      },
+    });
+    expect(result).toEqual({
+      tmpl_project_v2: 2,
+      tmpl_managed_v7: 1,
+    });
   });
 });

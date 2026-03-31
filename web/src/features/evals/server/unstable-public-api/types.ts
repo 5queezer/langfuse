@@ -11,6 +11,7 @@ import type {
   PublicContinuousEvaluationStatusType,
   PublicContinuousEvaluationTargetType,
   PublicEvaluatorModelConfigType,
+  PublicEvaluatorScopeType,
 } from "@/src/features/public-api/types/unstable-public-evals-contract";
 
 export type PrismaClientLike =
@@ -20,7 +21,8 @@ export type PrismaClientLike =
 export type ApiEvaluatorRecord = {
   id: string;
   name: string;
-  description: string | null;
+  version: number;
+  scope: PublicEvaluatorScopeType;
   type: "llm_as_judge";
   prompt: string;
   variables: string[];
@@ -51,11 +53,10 @@ export type StoredPublicEvaluatorTemplate = Pick<
   EvalTemplate,
   | "id"
   | "projectId"
-  | "evaluatorId"
   | "name"
-  | "description"
   | "version"
   | "prompt"
+  | "partner"
   | "provider"
   | "model"
   | "modelParams"
@@ -84,6 +85,6 @@ export type StoredPublicContinuousEvaluationConfig = Pick<
 > & {
   evalTemplate: Pick<
     EvalTemplate,
-    "id" | "projectId" | "evaluatorId" | "name" | "vars" | "prompt"
+    "id" | "projectId" | "name" | "vars" | "prompt"
   > | null;
 };

@@ -10,39 +10,27 @@ export function getPrismaClient(client?: PrismaClientLike) {
   return client ?? prisma;
 }
 
-export async function findEvaluatorTemplateVersionsOrThrow(params: {
+export async function findPublicEvaluatorTemplateOrThrow(params: {
   client?: PrismaClientLike;
   projectId: string;
   evaluatorId: string;
 }) {
   const client = getPrismaClient(params.client);
 
-  const templates = await client.evalTemplate.findMany({
+  const template = await client.evalTemplate.findFirst({
     where: {
-      projectId: params.projectId,
-      evaluatorId: params.evaluatorId,
-    },
-    orderBy: {
-      version: "asc",
+      id: params.evaluatorId,
+      OR: [{ projectId: params.projectId }, { projectId: null }],
     },
   });
 
-  if (templates.length === 0) {
+  if (!template) {
     throw new LangfuseNotFoundError(
       "Evaluator not found within authorized project",
     );
   }
 
-  return templates as StoredPublicEvaluatorTemplate[];
-}
-
-export async function findLatestEvaluatorTemplateOrThrow(params: {
-  client?: PrismaClientLike;
-  projectId: string;
-  evaluatorId: string;
-}) {
-  const templates = await findEvaluatorTemplateVersionsOrThrow(params);
-  return templates[templates.length - 1] as StoredPublicEvaluatorTemplate;
+  return template as StoredPublicEvaluatorTemplate;
 }
 
 export async function countContinuousEvaluationsForEvaluator(params: {
@@ -58,14 +46,124 @@ export async function countContinuousEvaluationsForEvaluator(params: {
       targetObject: {
         in: [EvalTargetObject.EVENT, EvalTargetObject.EXPERIMENT],
       },
-      evalTemplate: {
-        is: {
-          projectId: params.projectId,
-          evaluatorId: params.evaluatorId,
-        },
+      evalTemplateId: params.evaluatorId,
+    },
+  });
+}
+
+export async function countContinuousEvaluationsForEvaluatorIds(params: {
+  client?: PrismaClientLike;
+  projectId: string;
+  evaluatorIds: string[];
+}) {
+  if (params.evaluatorIds.length === 0) {
+    return {};
+  }
+
+  const client = getPrismaClient(params.client);
+  const groups = await client.jobConfiguration.groupBy({
+    by: ["evalTemplateId"],
+    where: {
+      projectId: params.projectId,
+      targetObject: {
+        in: [EvalTargetObject.EVENT, EvalTargetObject.EXPERIMENT],
+      },
+      evalTemplateId: {
+        in: params.evaluatorIds,
+      },
+    },
+    _count: {
+      _all: true,
+    },
+  });
+
+  return groups.reduce<Record<string, number>>((counts, group) => {
+    if (!group.evalTemplateId) {
+      return counts;
+    }
+
+    counts[group.evalTemplateId] = group._count._all;
+    return counts;
+  }, {});
+}
+
+export async function listPublicEvaluatorTemplates(params: {
+  projectId: string;
+  page: number;
+  limit: number;
+}) {
+  const offset = (params.page - 1) * params.limit;
+  const [evaluatorRows, totalItemsRes] = await Promise.all([
+    prisma.$queryRaw<Array<{ id: string }>>(
+      Prisma.sql`
+        WITH latest_templates AS (
+          SELECT DISTINCT ON (project_id, name)
+            id,
+            project_id,
+            name,
+            updated_at
+          FROM eval_templates
+          WHERE project_id = ${params.projectId} OR project_id IS NULL
+          ORDER BY project_id, name, version DESC
+        )
+        SELECT id
+        FROM latest_templates
+        ORDER BY
+          CASE WHEN project_id IS NULL THEN 1 ELSE 0 END ASC,
+          name ASC,
+          updated_at DESC,
+          id ASC
+        LIMIT ${params.limit}
+        OFFSET ${offset}
+      `,
+    ),
+    prisma.$queryRaw<Array<{ count: bigint }>>(
+      Prisma.sql`
+        SELECT COUNT(*) as count
+        FROM (
+          SELECT DISTINCT project_id, name
+          FROM eval_templates
+          WHERE project_id = ${params.projectId} OR project_id IS NULL
+        ) latest_template_families
+      `,
+    ),
+  ]);
+
+  const totalItems =
+    totalItemsRes[0] !== undefined ? Number(totalItemsRes[0].count) : 0;
+  const templateIds = evaluatorRows.map((row) => row.id);
+
+  if (templateIds.length === 0) {
+    return {
+      totalItems,
+      templates: [],
+    };
+  }
+
+  const templates = await prisma.evalTemplate.findMany({
+    where: {
+      id: {
+        in: templateIds,
       },
     },
   });
+
+  const templateById = new Map(
+    templates.map((template) => [
+      template.id,
+      template as StoredPublicEvaluatorTemplate,
+    ]),
+  );
+
+  return {
+    totalItems,
+    templates: templateIds
+      .map((id) => templateById.get(id))
+      .filter(
+        (template): template is StoredPublicEvaluatorTemplate =>
+          template !== undefined,
+      ),
+  };
 }
 
 export async function findPublicContinuousEvaluationOrThrow(params: {
@@ -84,10 +182,7 @@ export async function findPublicContinuousEvaluationOrThrow(params: {
       },
       evalTemplate: {
         is: {
-          projectId: params.projectId,
-          evaluatorId: {
-            not: null,
-          },
+          OR: [{ projectId: params.projectId }, { projectId: null }],
         },
       },
     },
@@ -96,7 +191,6 @@ export async function findPublicContinuousEvaluationOrThrow(params: {
         select: {
           id: true,
           projectId: true,
-          evaluatorId: true,
           name: true,
           vars: true,
           prompt: true,
@@ -119,138 +213,11 @@ export async function loadEvaluatorForContinuousEvaluation(params: {
   projectId: string;
   evaluatorId: string;
 }) {
-  const template = await findLatestEvaluatorTemplateOrThrow(params);
+  const template = await findPublicEvaluatorTemplateOrThrow(params);
 
   return {
     template,
   };
-}
-
-export async function listPublicEvaluatorTemplateGroups(params: {
-  projectId: string;
-  page: number;
-  limit: number;
-}) {
-  const offset = (params.page - 1) * params.limit;
-  const [evaluatorRows, totalItemsRes] = await Promise.all([
-    prisma.$queryRaw<Array<{ evaluatorId: string; latestUpdatedAt: Date }>>(
-      Prisma.sql`
-        SELECT
-          evaluator_id as "evaluatorId",
-          MAX(updated_at) as "latestUpdatedAt"
-        FROM eval_templates
-        WHERE
-          project_id = ${params.projectId}
-          AND evaluator_id IS NOT NULL
-        GROUP BY evaluator_id
-        ORDER BY MAX(updated_at) DESC, evaluator_id ASC
-        LIMIT ${params.limit}
-        OFFSET ${offset}
-      `,
-    ),
-    prisma.$queryRaw<Array<{ count: bigint }>>(
-      Prisma.sql`
-        SELECT
-          COUNT(DISTINCT evaluator_id) as count
-        FROM eval_templates
-        WHERE
-          project_id = ${params.projectId}
-          AND evaluator_id IS NOT NULL
-      `,
-    ),
-  ]);
-  const totalItems =
-    totalItemsRes[0] !== undefined ? Number(totalItemsRes[0].count) : 0;
-  const evaluatorIds = evaluatorRows.map((row) => row.evaluatorId);
-
-  if (evaluatorIds.length === 0) {
-    return {
-      totalItems,
-      groups: [],
-    };
-  }
-
-  const templates = await prisma.evalTemplate.findMany({
-    where: {
-      projectId: params.projectId,
-      evaluatorId: {
-        in: evaluatorIds,
-      },
-    },
-    orderBy: [{ evaluatorId: "asc" }, { version: "asc" }],
-  });
-
-  const groupedTemplates = new Map<string, StoredPublicEvaluatorTemplate[]>();
-
-  for (const template of templates) {
-    if (!template.evaluatorId) {
-      continue;
-    }
-
-    const existing = groupedTemplates.get(template.evaluatorId) ?? [];
-    existing.push(template as StoredPublicEvaluatorTemplate);
-    groupedTemplates.set(template.evaluatorId, existing);
-  }
-
-  const groups = evaluatorIds
-    .map((evaluatorId) => groupedTemplates.get(evaluatorId) ?? [])
-    .filter(
-      (
-        group,
-      ): group is [
-        StoredPublicEvaluatorTemplate,
-        ...StoredPublicEvaluatorTemplate[],
-      ] => group.length > 0,
-    );
-
-  return {
-    totalItems,
-    groups,
-  };
-}
-
-export async function countContinuousEvaluationsForEvaluatorIds(params: {
-  projectId: string;
-  evaluatorIds: string[];
-}) {
-  if (params.evaluatorIds.length === 0) {
-    return {};
-  }
-
-  const configs = await prisma.jobConfiguration.findMany({
-    where: {
-      projectId: params.projectId,
-      targetObject: {
-        in: [EvalTargetObject.EVENT, EvalTargetObject.EXPERIMENT],
-      },
-      evalTemplate: {
-        is: {
-          projectId: params.projectId,
-          evaluatorId: {
-            in: params.evaluatorIds,
-          },
-        },
-      },
-    },
-    select: {
-      evalTemplate: {
-        select: {
-          evaluatorId: true,
-        },
-      },
-    },
-  });
-
-  return configs.reduce<Record<string, number>>((counts, config) => {
-    const evaluatorId = config.evalTemplate?.evaluatorId;
-
-    if (!evaluatorId) {
-      return counts;
-    }
-
-    counts[evaluatorId] = (counts[evaluatorId] ?? 0) + 1;
-    return counts;
-  }, {});
 }
 
 export async function listPublicContinuousEvaluationConfigs(params: {
@@ -267,10 +234,7 @@ export async function listPublicContinuousEvaluationConfigs(params: {
         },
         evalTemplate: {
           is: {
-            projectId: params.projectId,
-            evaluatorId: {
-              not: null,
-            },
+            OR: [{ projectId: params.projectId }, { projectId: null }],
           },
         },
       },
@@ -279,7 +243,6 @@ export async function listPublicContinuousEvaluationConfigs(params: {
           select: {
             id: true,
             projectId: true,
-            evaluatorId: true,
             name: true,
             vars: true,
             prompt: true,
@@ -300,10 +263,7 @@ export async function listPublicContinuousEvaluationConfigs(params: {
         },
         evalTemplate: {
           is: {
-            projectId: params.projectId,
-            evaluatorId: {
-              not: null,
-            },
+            OR: [{ projectId: params.projectId }, { projectId: null }],
           },
         },
       },

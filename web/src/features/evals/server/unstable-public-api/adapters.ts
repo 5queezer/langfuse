@@ -263,35 +263,31 @@ function toApiFilters(
 }
 
 export function toApiEvaluator(params: {
-  templates: StoredPublicEvaluatorTemplate[];
+  template: StoredPublicEvaluatorTemplate;
   continuousEvaluationCount: number;
 }): ApiEvaluatorRecord {
-  const latestTemplate = params.templates[params.templates.length - 1];
-  const earliestTemplate = params.templates[0];
-
-  if (!latestTemplate?.evaluatorId) {
-    throw new InternalServerError("Evaluator identity is corrupted");
-  }
+  const template = params.template;
 
   return {
-    id: latestTemplate.evaluatorId,
-    name: latestTemplate.name,
-    description: latestTemplate.description ?? null,
+    id: template.id,
+    name: template.name,
+    version: template.version,
+    scope: template.projectId === null ? "managed" : "project",
     type: "llm_as_judge",
-    prompt: latestTemplate.prompt,
-    variables: deriveEvaluatorVariables(latestTemplate),
-    outputDefinition: parseStoredOutputDefinition(latestTemplate),
-    modelConfig: toApiModelConfig(latestTemplate),
+    prompt: template.prompt,
+    variables: deriveEvaluatorVariables(template),
+    outputDefinition: parseStoredOutputDefinition(template),
+    modelConfig: toApiModelConfig(template),
     continuousEvaluationCount: params.continuousEvaluationCount,
-    createdAt: earliestTemplate?.createdAt ?? latestTemplate.createdAt,
-    updatedAt: latestTemplate.updatedAt,
+    createdAt: template.createdAt,
+    updatedAt: template.updatedAt,
   };
 }
 
 export function toApiContinuousEvaluation(
   config: StoredPublicContinuousEvaluationConfig,
 ): ApiContinuousEvaluationRecord {
-  if (!config.evalTemplate?.evaluatorId) {
+  if (!config.evalTemplate?.id) {
     throw new InternalServerError(
       "Continuous evaluation evaluator is corrupted",
     );
@@ -302,7 +298,7 @@ export function toApiContinuousEvaluation(
   return {
     id: config.id,
     name: config.scoreName,
-    evaluatorId: config.evalTemplate.evaluatorId,
+    evaluatorId: config.evalTemplate.id,
     target,
     enabled: config.status === JobConfigState.ACTIVE,
     status: toApiContinuousEvaluationStatus(config),

@@ -10,8 +10,6 @@ import type {
 } from "@/src/features/public-api/types/unstable-public-evals-contract";
 import { getEvaluatorDefinitionPreflightError } from "@/src/features/evals/server/evaluator-preflight";
 import { createUnstablePublicApiError } from "@/src/features/public-api/server/unstable-public-api-error-contract";
-import type { PrismaClientLike } from "./types";
-import { getPrismaClient } from "./queries";
 
 const STATIC_FILTER_OPTIONS_BY_TARGET = {
   observation: new Map(
@@ -295,45 +293,6 @@ export function validateEvaluatorVariableMappings(params: {
         mappingIndex,
       });
     }
-  }
-}
-
-export async function assertEvaluatorNameIsAvailable(params: {
-  client?: PrismaClientLike;
-  projectId: string;
-  name: string;
-  evaluatorId?: string;
-}) {
-  const client = getPrismaClient(params.client);
-
-  const conflictingTemplate = await client.evalTemplate.findFirst({
-    where: params.evaluatorId
-      ? {
-          projectId: params.projectId,
-          name: params.name,
-          NOT: {
-            evaluatorId: params.evaluatorId,
-          },
-        }
-      : {
-          projectId: params.projectId,
-          name: params.name,
-        },
-    select: {
-      id: true,
-    },
-  });
-
-  if (conflictingTemplate) {
-    throw createUnstablePublicApiError({
-      httpCode: 409,
-      code: "name_conflict",
-      message: `An evaluator with name "${params.name}" already exists in this project`,
-      details: {
-        field: "name",
-        value: params.name,
-      },
-    });
   }
 }
 

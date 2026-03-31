@@ -28,6 +28,7 @@ import type {
 } from "@/src/features/public-api/shared/unstable-public-api-error-schema";
 
 export const PublicEvaluatorType = z.literal("llm_as_judge");
+export const PublicEvaluatorScope = z.enum(["project", "managed"]);
 
 export const PublicEvaluatorModelConfig = z
   .object({
@@ -162,6 +163,7 @@ export const PublicContinuousEvaluationFilter = z.union([
 export type PublicEvaluatorModelConfigType = z.infer<
   typeof PublicEvaluatorModelConfig
 >;
+export type PublicEvaluatorScopeType = z.infer<typeof PublicEvaluatorScope>;
 export type PublicContinuousEvaluationTargetType = z.infer<
   typeof PublicContinuousEvaluationTarget
 >;

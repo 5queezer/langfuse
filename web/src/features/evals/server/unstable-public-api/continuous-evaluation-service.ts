@@ -97,7 +97,6 @@ export async function createPublicContinuousEvaluation(params: {
         select: {
           id: true,
           projectId: true,
-          evaluatorId: true,
           name: true,
           vars: true,
           prompt: true,
@@ -191,7 +190,6 @@ export async function updatePublicContinuousEvaluation(params: {
         select: {
           id: true,
           projectId: true,
-          evaluatorId: true,
           name: true,
           vars: true,
           prompt: true,

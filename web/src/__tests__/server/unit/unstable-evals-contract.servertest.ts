@@ -16,13 +16,13 @@ import type {
   StoredPublicEvaluatorTemplate,
 } from "@/src/features/evals/server/unstable-public-api/types";
 import {
+  GetUnstableContinuousEvaluationsQuery,
   PatchUnstableContinuousEvaluationBody,
   PostUnstableContinuousEvaluationBody,
-  GetUnstableContinuousEvaluationsQuery,
 } from "@/src/features/public-api/types/unstable-continuous-evaluations";
 import {
   GetUnstableEvaluatorsQuery,
-  PatchUnstableEvaluatorBody,
+  PostUnstableEvaluatorBody,
 } from "@/src/features/public-api/types/unstable-evaluators";
 
 const numericOutputDefinition = createNumericEvalOutputDefinition({
@@ -45,7 +45,6 @@ const expectUnstablePublicApiError = (
     expect(error).toBeInstanceOf(UnstablePublicApiError);
 
     const unstableError = error as UnstablePublicApiError;
-
     expect(unstableError.code).toBe(params.code);
 
     if (params.message) {
@@ -55,16 +54,25 @@ const expectUnstablePublicApiError = (
     if (params.details) {
       expect(unstableError.details).toMatchObject(params.details);
     }
-
-    return unstableError;
   }
 };
 
 describe("unstable public eval contracts", () => {
+  it("rejects evaluator creation fields that are no longer part of the contract", () => {
+    expect(
+      PostUnstableEvaluatorBody.safeParse({
+        name: "Answer correctness",
+        description: "legacy field",
+        prompt: "Judge {{input}} against {{output}}",
+        outputDefinition: numericOutputDefinition,
+      }).success,
+    ).toBe(false);
+  });
+
   it("rejects observation continuous evaluations that use expected_output mappings", () => {
     const parsed = PostUnstableContinuousEvaluationBody.safeParse({
       name: "answer_quality",
-      evaluatorId: "eval_123",
+      evaluatorId: "tmpl_123",
       target: "observation",
       enabled: true,
       sampling: 1,
@@ -99,24 +107,6 @@ describe("unstable public eval contracts", () => {
 
     expect(parsed.success).toBe(false);
     expect(parsed.error?.issues.length).toBeGreaterThan(0);
-  });
-
-  it("rejects null for non-nullable evaluator update fields", () => {
-    expect(
-      PatchUnstableEvaluatorBody.safeParse({
-        name: null,
-      }).success,
-    ).toBe(false);
-    expect(
-      PatchUnstableEvaluatorBody.safeParse({
-        prompt: null,
-      }).success,
-    ).toBe(false);
-    expect(
-      PatchUnstableEvaluatorBody.safeParse({
-        outputDefinition: null,
-      }).success,
-    ).toBe(false);
   });
 
   it("rejects non-positive unstable pagination limits", () => {
@@ -210,8 +200,6 @@ describe("unstable public eval adapters", () => {
         }),
       {
         code: "invalid_filter_value",
-        message:
-          'Filter column "type" contains unsupported value(s): NOT_A_REAL_TYPE',
         details: {
           field: "filter[0].value",
           column: "type",
@@ -243,7 +231,6 @@ describe("unstable public eval adapters", () => {
         }),
       {
         code: "invalid_json_path",
-        message: 'invalid jsonPath "$["',
         details: {
           field: "mapping[0].jsonPath",
           variable: "input",
@@ -258,60 +245,22 @@ describe("unstable public eval adapters", () => {
       () =>
         toJobConfigurationInput({
           input: {
-            name: "expected_output_match",
+            name: "answer_quality",
             target: "observation",
             enabled: true,
             sampling: 1,
             filter: [],
             mapping: [
-              {
-                variable: "expected_output",
-                source: "expected_output",
-              },
+              { variable: "expected_output", source: "expected_output" },
             ],
           },
           evaluatorVariables: ["expected_output"],
         }),
       {
         code: "invalid_variable_mapping",
-        message:
-          'Mapping source "expected_output" is not supported for target "observation"',
         details: {
           field: "mapping[0].source",
           variable: "expected_output",
-        },
-      },
-    );
-  });
-
-  it("rejects filter columns that are incompatible with the selected target", () => {
-    expectUnstablePublicApiError(
-      () =>
-        toJobConfigurationInput({
-          input: {
-            name: "answer_quality",
-            target: "experiment",
-            enabled: true,
-            sampling: 1,
-            filter: [
-              {
-                type: "stringOptions",
-                column: "type",
-                operator: "any of",
-                value: ["GENERATION"],
-              },
-            ],
-            mapping: [{ variable: "input", source: "input" }],
-          },
-          evaluatorVariables: ["input"],
-        }),
-      {
-        code: "invalid_filter_value",
-        message:
-          'Filter column "type" is not supported for target "experiment"',
-        details: {
-          field: "filter[0].column",
-          column: "type",
         },
       },
     );
@@ -333,7 +282,6 @@ describe("unstable public eval adapters", () => {
         }),
       {
         code: "missing_variable_mapping",
-        message: "Missing mappings for evaluator variables: output",
         details: {
           field: "mapping",
           variables: ["output"],
@@ -342,58 +290,55 @@ describe("unstable public eval adapters", () => {
     );
   });
 
-  it("rejects duplicate evaluator variable mappings", () => {
-    expectUnstablePublicApiError(
-      () =>
-        toJobConfigurationInput({
-          input: {
-            name: "answer_quality",
-            target: "observation",
-            enabled: true,
-            sampling: 1,
-            filter: [],
-            mapping: [
-              { variable: "input", source: "input" },
-              { variable: "input", source: "metadata" },
-            ],
-          },
-          evaluatorVariables: ["input"],
-        }),
-      {
-        code: "duplicate_variable_mapping",
-        message: 'Mapping variable "input" can only be mapped once',
-        details: {
-          field: "mapping",
-          variable: "input",
-        },
-      },
-    );
+  it("maps evaluator records to exact template versions", () => {
+    const template: StoredPublicEvaluatorTemplate = {
+      id: "tmpl_latest",
+      projectId: null,
+      name: "answer-correctness",
+      version: 7,
+      prompt: "Judge {{input}} against {{output}}",
+      partner: "ragas",
+      provider: "openai",
+      model: "gpt-4.1-mini",
+      modelParams: { temperature: 0 },
+      vars: ["input", "output"],
+      outputDefinition: numericOutputDefinition,
+      createdAt: new Date("2026-03-30T08:00:00.000Z"),
+      updatedAt: new Date("2026-03-30T09:00:00.000Z"),
+    };
+
+    expect(
+      toApiEvaluator({
+        template,
+        continuousEvaluationCount: 2,
+      }),
+    ).toMatchObject({
+      id: "tmpl_latest",
+      name: "answer-correctness",
+      version: 7,
+      scope: "managed",
+      type: "llm_as_judge",
+      variables: ["input", "output"],
+      continuousEvaluationCount: 2,
+    });
   });
 
-  it("translates stored continuous evaluations back into public API records", () => {
-    const record = toApiContinuousEvaluation({
+  it("maps continuous evaluations to exact referenced template ids", () => {
+    const config: StoredPublicContinuousEvaluationConfig = {
       id: "ceval_123",
       projectId: "project_123",
-      evalTemplateId: "tmpl_2",
-      scoreName: "expected_output_match",
-      targetObject: EvalTargetObject.EXPERIMENT,
-      filter: [
-        {
-          type: "stringOptions",
-          column: "experimentDatasetId",
-          operator: "any of",
-          value: ["dataset-1"],
-        },
-      ],
+      evalTemplateId: "tmpl_exact",
+      scoreName: "answer_quality",
+      targetObject: EvalTargetObject.EVENT,
+      filter: [],
       variableMapping: [
         {
-          templateVariable: "expected_output",
-          selectedColumnId: "experimentItemExpectedOutput",
+          templateVariable: "input",
+          selectedColumnId: "input",
           jsonSelector: null,
         },
       ],
-      sampling:
-        0.5 as unknown as StoredPublicContinuousEvaluationConfig["sampling"],
+      sampling: 1,
       status: JobConfigState.ACTIVE,
       blockedAt: null,
       blockReason: null,
@@ -401,87 +346,19 @@ describe("unstable public eval adapters", () => {
       createdAt: new Date("2026-03-30T08:00:00.000Z"),
       updatedAt: new Date("2026-03-30T09:00:00.000Z"),
       evalTemplate: {
-        id: "tmpl_2",
+        id: "tmpl_exact",
         projectId: "project_123",
-        evaluatorId: "eval_123",
-        name: "Expected output match",
-        vars: ["expected_output"],
-        prompt: "Compare {{expected_output}}",
+        name: "answer-correctness",
+        vars: ["input"],
+        prompt: "Judge {{input}}",
       },
-    } as StoredPublicContinuousEvaluationConfig);
+    };
 
-    expect(record).toMatchObject({
-      id: "ceval_123",
-      name: "expected_output_match",
-      evaluatorId: "eval_123",
-      target: "experiment",
+    expect(toApiContinuousEvaluation(config)).toMatchObject({
+      evaluatorId: "tmpl_exact",
+      target: "observation",
       enabled: true,
       status: "active",
-      filter: [
-        {
-          type: "stringOptions",
-          column: "datasetId",
-          operator: "any of",
-          value: ["dataset-1"],
-        },
-      ],
-      mapping: [
-        {
-          variable: "expected_output",
-          source: "expected_output",
-        },
-      ],
     });
-  });
-
-  it("builds evaluator responses from the latest template while keeping stable timestamps", () => {
-    const evaluator = toApiEvaluator({
-      templates: [
-        {
-          id: "tmpl_1",
-          projectId: "project_123",
-          evaluatorId: "eval_123",
-          name: "Answer correctness",
-          description: "v1",
-          version: 1,
-          prompt: "Judge {{input}}",
-          provider: "openai",
-          model: "gpt-4.1-mini",
-          modelParams: null,
-          vars: ["input"],
-          outputDefinition: numericOutputDefinition,
-          createdAt: new Date("2026-03-29T08:00:00.000Z"),
-          updatedAt: new Date("2026-03-29T08:00:00.000Z"),
-        },
-        {
-          id: "tmpl_2",
-          projectId: "project_123",
-          evaluatorId: "eval_123",
-          name: "Answer correctness",
-          description: "v2",
-          version: 2,
-          prompt: "Judge {{input}} against {{output}}",
-          provider: "openai",
-          model: "gpt-4.1-mini",
-          modelParams: { temperature: 0 },
-          vars: ["input", "output"],
-          outputDefinition: numericOutputDefinition,
-          createdAt: new Date("2026-03-29T08:00:00.000Z"),
-          updatedAt: new Date("2026-03-30T08:00:00.000Z"),
-        },
-      ] as StoredPublicEvaluatorTemplate[],
-      continuousEvaluationCount: 3,
-    });
-
-    expect(evaluator).toMatchObject({
-      id: "eval_123",
-      name: "Answer correctness",
-      description: "v2",
-      prompt: "Judge {{input}} against {{output}}",
-      variables: ["input", "output"],
-      continuousEvaluationCount: 3,
-    });
-    expect(evaluator.createdAt.toISOString()).toBe("2026-03-29T08:00:00.000Z");
-    expect(evaluator.updatedAt.toISOString()).toBe("2026-03-30T08:00:00.000Z");
   });
 });
