@@ -56,12 +56,15 @@ const PUBLIC_MAPPING_SOURCE_TO_INTERNAL_COLUMN: Record<
 };
 
 const INTERNAL_MAPPING_COLUMN_TO_PUBLIC_SOURCE: Record<
-  ObservationVariableMapping["selectedColumnId"],
+  string,
   PublicContinuousEvaluationMappingType["source"]
 > = {
   input: "input",
   output: "output",
   metadata: "metadata",
+  expected_output: "expected_output",
+  expectedOutput: "expected_output",
+  experiment_item_expected_output: "expected_output",
   experimentItemExpectedOutput: "expected_output",
 };
 

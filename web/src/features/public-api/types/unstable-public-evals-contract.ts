@@ -6,7 +6,6 @@ import {
   numberObjectFilter,
   observationEvalFilterColumns,
   PersistedEvalOutputDefinitionSchema,
-  publicApiPaginationZod,
   paginationMetaResponseZod,
   stringFilter,
   stringObjectFilter,
@@ -30,13 +29,11 @@ import type {
 export const PublicEvaluatorType = z.literal("llm_as_judge");
 export const PublicEvaluatorScope = z.enum(["project", "managed"]);
 
-export const PublicEvaluatorModelConfig = z
-  .object({
-    provider: z.string().min(1),
-    model: z.string().min(1),
-    modelParams: ZodModelConfig.nullish(),
-  })
-  .strict();
+export const PublicEvaluatorModelConfig = z.object({
+  provider: z.string().min(1),
+  model: z.string().min(1),
+  modelParams: ZodModelConfig.nullish(),
+});
 
 export const PublicContinuousEvaluationTarget = z.enum([
   "observation",
@@ -67,13 +64,11 @@ function createMappingSchema<
     "input" | "output" | "metadata" | "expected_output"
   >,
 >(sourceSchema: TSource) {
-  return z
-    .object({
-      variable: z.string().min(1),
-      source: sourceSchema,
-      jsonPath: z.string().min(1).optional(),
-    })
-    .strict();
+  return z.object({
+    variable: z.string().min(1),
+    source: sourceSchema,
+    jsonPath: z.string().min(1).optional(),
+  });
 }
 
 export const ObservationContinuousEvaluationMapping = createMappingSchema(
@@ -181,22 +176,21 @@ export type {
   UnstablePublicApiErrorDetailsType,
 };
 
-export const UnstablePublicApiPaginationQuery = z
-  .object({
-    page: publicApiPaginationZod.page,
-    limit: z.preprocess(
-      (x) => (x === "" ? undefined : x),
-      z.coerce.number().gt(0).lte(100).default(50),
-    ),
-  })
-  .strict();
+export const UnstablePublicApiPaginationQuery = z.object({
+  page: z.preprocess(
+    (x) => (x === "" ? undefined : x),
+    z.coerce.number().int().gt(0).default(1),
+  ),
+  limit: z.preprocess(
+    (x) => (x === "" ? undefined : x),
+    z.coerce.number().int().gt(0).lte(100).default(50),
+  ),
+});
 
 export const UnstablePublicApiPaginationResponse = paginationMetaResponseZod;
 
-export const PublicEvaluatorDefinitionInput = z
-  .object({
-    prompt: z.string().min(1),
-    outputDefinition: PersistedEvalOutputDefinitionSchema,
-    modelConfig: PublicEvaluatorModelConfig.nullable().optional(),
-  })
-  .strict();
+export const PublicEvaluatorDefinitionInput = z.object({
+  prompt: z.string().min(1),
+  outputDefinition: PersistedEvalOutputDefinitionSchema,
+  modelConfig: PublicEvaluatorModelConfig.nullable().optional(),
+});

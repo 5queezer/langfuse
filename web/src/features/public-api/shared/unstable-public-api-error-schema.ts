@@ -57,7 +57,6 @@ export const UnstablePublicApiErrorResponse = z
     message: z.string(),
     code: UnstablePublicApiErrorCode,
     details: UnstablePublicApiErrorDetails.optional(),
-    requestId: z.string().optional(),
   })
   .strict();
 

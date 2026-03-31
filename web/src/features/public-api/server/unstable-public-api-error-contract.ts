@@ -23,25 +23,21 @@ type UnstablePublicApiErrorBody = {
   message: string;
   code: UnstablePublicApiErrorCodeType;
   details?: UnstablePublicApiErrorDetailsType;
-  requestId?: string;
 };
 
 export class UnstablePublicApiError extends BaseError {
   public readonly code: UnstablePublicApiErrorCodeType;
   public readonly details?: UnstablePublicApiErrorDetailsType;
-  public readonly requestId?: string;
 
   constructor(params: {
     httpCode: number;
     code: UnstablePublicApiErrorCodeType;
     message: string;
     details?: UnstablePublicApiErrorDetailsType;
-    requestId?: string;
   }) {
     super("UnstablePublicApiError", params.httpCode, params.message, true);
     this.code = params.code;
     this.details = params.details;
-    this.requestId = params.requestId;
   }
 }
 
@@ -50,7 +46,6 @@ function toBody(error: UnstablePublicApiError): UnstablePublicApiErrorBody {
     message: error.message,
     code: error.code,
     ...(error.details !== undefined ? { details: error.details } : {}),
-    ...(error.requestId ? { requestId: error.requestId } : {}),
   };
 }
 
@@ -66,7 +61,6 @@ export function createUnstablePublicApiError(params: {
   code: UnstablePublicApiErrorCodeType;
   message: string;
   details?: UnstablePublicApiErrorDetailsType;
-  requestId?: string;
 }) {
   return new UnstablePublicApiError(params);
 }

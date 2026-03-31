@@ -57,6 +57,10 @@ import {
   selectDatasetEvaluatorsForStatusChange,
   shouldValidateBeforeActivation,
 } from "@/src/features/evals/server/evalConfigState";
+import {
+  EVAL_TEMPLATE_AUDIT_LOG_RESOURCE_TYPE,
+  JOB_CONFIGURATION_AUDIT_LOG_RESOURCE_TYPE,
+} from "@/src/features/evals/server/audit-log-resource-types";
 import { getEvaluatorDefinitionPreflightError } from "@/src/features/evals/server/evaluator-preflight";
 
 const ConfigWithTemplateSchema = z.object({
@@ -725,7 +729,7 @@ export const evalRouter = createTRPCRouter({
       const jobId = uuidv4();
       await auditLog({
         session: ctx.session,
-        resourceType: "job",
+        resourceType: JOB_CONFIGURATION_AUDIT_LOG_RESOURCE_TYPE,
         resourceId: jobId,
         action: "create",
       });
@@ -963,7 +967,7 @@ export const evalRouter = createTRPCRouter({
 
         await auditLog({
           session: ctx.session,
-          resourceType: "evalTemplate",
+          resourceType: EVAL_TEMPLATE_AUDIT_LOG_RESOURCE_TYPE,
           resourceId: evalTemplate.id,
           action: "create",
         });
@@ -1131,7 +1135,7 @@ export const evalRouter = createTRPCRouter({
 
       await auditLog({
         session: ctx.session,
-        resourceType: "job",
+        resourceType: JOB_CONFIGURATION_AUDIT_LOG_RESOURCE_TYPE,
         resourceId: evalConfigId,
         action: "update",
       });
@@ -1246,7 +1250,7 @@ export const evalRouter = createTRPCRouter({
 
       await auditLog({
         session: ctx.session,
-        resourceType: "job",
+        resourceType: JOB_CONFIGURATION_AUDIT_LOG_RESOURCE_TYPE,
         resourceId: evalConfigId,
         action: "delete",
       });

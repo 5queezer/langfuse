@@ -1,4 +1,5 @@
 import { auditLog } from "@/src/features/audit-logs/auditLog";
+import { JOB_CONFIGURATION_AUDIT_LOG_RESOURCE_TYPE } from "@/src/features/evals/server/audit-log-resource-types";
 import {
   createPublicContinuousEvaluation,
   listPublicContinuousEvaluations,
@@ -38,7 +39,7 @@ export default withUnstablePublicEvalsMiddlewares({
 
       await auditLog({
         action: "create",
-        resourceType: "job",
+        resourceType: JOB_CONFIGURATION_AUDIT_LOG_RESOURCE_TYPE,
         resourceId: continuousEvaluation.id,
         projectId: auth.scope.projectId,
         orgId: auth.scope.orgId,

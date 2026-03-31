@@ -1,4 +1,5 @@
 import { auditLog } from "@/src/features/audit-logs/auditLog";
+import { JOB_CONFIGURATION_AUDIT_LOG_RESOURCE_TYPE } from "@/src/features/evals/server/audit-log-resource-types";
 import {
   deletePublicContinuousEvaluation,
   getPublicContinuousEvaluation,
@@ -48,7 +49,7 @@ export default withUnstablePublicEvalsMiddlewares({
 
       await auditLog({
         action: "update",
-        resourceType: "job",
+        resourceType: JOB_CONFIGURATION_AUDIT_LOG_RESOURCE_TYPE,
         resourceId: continuousEvaluation.id,
         projectId: auth.scope.projectId,
         orgId: auth.scope.orgId,
@@ -77,7 +78,7 @@ export default withUnstablePublicEvalsMiddlewares({
 
       await auditLog({
         action: "delete",
-        resourceType: "job",
+        resourceType: JOB_CONFIGURATION_AUDIT_LOG_RESOURCE_TYPE,
         resourceId: query.continuousEvaluationId,
         projectId: auth.scope.projectId,
         orgId: auth.scope.orgId,

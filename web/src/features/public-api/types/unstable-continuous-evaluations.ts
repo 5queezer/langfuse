@@ -40,11 +40,9 @@ export const GetUnstableContinuousEvaluationsResponse = z
   })
   .strict();
 
-export const GetUnstableContinuousEvaluationQuery = z
-  .object({
-    continuousEvaluationId: z.string(),
-  })
-  .strict();
+export const GetUnstableContinuousEvaluationQuery = z.object({
+  continuousEvaluationId: z.string(),
+});
 
 export const GetUnstableContinuousEvaluationResponse = APIContinuousEvaluation;
 
@@ -58,22 +56,18 @@ const ContinuousEvaluationCreateBase = {
 export const PostUnstableContinuousEvaluationBody = z.discriminatedUnion(
   "target",
   [
-    z
-      .object({
-        ...ContinuousEvaluationCreateBase,
-        target: z.literal("observation"),
-        filter: z.array(ObservationContinuousEvaluationFilter).default([]),
-        mapping: z.array(ObservationContinuousEvaluationMapping),
-      })
-      .strict(),
-    z
-      .object({
-        ...ContinuousEvaluationCreateBase,
-        target: z.literal("experiment"),
-        filter: z.array(ExperimentContinuousEvaluationFilter).default([]),
-        mapping: z.array(ExperimentContinuousEvaluationMapping),
-      })
-      .strict(),
+    z.object({
+      ...ContinuousEvaluationCreateBase,
+      target: z.literal("observation"),
+      filter: z.array(ObservationContinuousEvaluationFilter).default([]),
+      mapping: z.array(ObservationContinuousEvaluationMapping),
+    }),
+    z.object({
+      ...ContinuousEvaluationCreateBase,
+      target: z.literal("experiment"),
+      filter: z.array(ExperimentContinuousEvaluationFilter).default([]),
+      mapping: z.array(ExperimentContinuousEvaluationMapping),
+    }),
   ],
 );
 export type PostUnstableContinuousEvaluationBodyType = z.infer<
@@ -92,29 +86,23 @@ const ContinuousEvaluationPatchBase = {
   sampling: z.number().gt(0).lte(1).optional(),
 };
 
-const UntargetedContinuousEvaluationPatch = z
-  .object({
-    ...ContinuousEvaluationPatchBase,
-  })
-  .strict();
+const UntargetedContinuousEvaluationPatch = z.object({
+  ...ContinuousEvaluationPatchBase,
+});
 
-const ObservationContinuousEvaluationPatch = z
-  .object({
-    ...ContinuousEvaluationPatchBase,
-    target: z.literal("observation"),
-    filter: z.array(ObservationContinuousEvaluationFilter).optional(),
-    mapping: z.array(ObservationContinuousEvaluationMapping).optional(),
-  })
-  .strict();
+const ObservationContinuousEvaluationPatch = z.object({
+  ...ContinuousEvaluationPatchBase,
+  target: z.literal("observation"),
+  filter: z.array(ObservationContinuousEvaluationFilter).optional(),
+  mapping: z.array(ObservationContinuousEvaluationMapping).optional(),
+});
 
-const ExperimentContinuousEvaluationPatch = z
-  .object({
-    ...ContinuousEvaluationPatchBase,
-    target: z.literal("experiment"),
-    filter: z.array(ExperimentContinuousEvaluationFilter).optional(),
-    mapping: z.array(ExperimentContinuousEvaluationMapping).optional(),
-  })
-  .strict();
+const ExperimentContinuousEvaluationPatch = z.object({
+  ...ContinuousEvaluationPatchBase,
+  target: z.literal("experiment"),
+  filter: z.array(ExperimentContinuousEvaluationFilter).optional(),
+  mapping: z.array(ExperimentContinuousEvaluationMapping).optional(),
+});
 
 export const PatchUnstableContinuousEvaluationBody = z
   .union([

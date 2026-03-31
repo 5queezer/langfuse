@@ -58,15 +58,19 @@ const expectUnstablePublicApiError = (
 };
 
 describe("unstable public eval contracts", () => {
-  it("rejects evaluator creation fields that are no longer part of the contract", () => {
-    expect(
-      PostUnstableEvaluatorBody.safeParse({
-        name: "Answer correctness",
-        description: "legacy field",
-        prompt: "Judge {{input}} against {{output}}",
-        outputDefinition: numericOutputDefinition,
-      }).success,
-    ).toBe(false);
+  it("ignores unknown evaluator creation fields for forward compatibility", () => {
+    const parsed = PostUnstableEvaluatorBody.parse({
+      name: "Answer correctness",
+      description: "future field",
+      prompt: "Judge {{input}} against {{output}}",
+      outputDefinition: numericOutputDefinition,
+    });
+
+    expect(parsed).toEqual({
+      name: "Answer correctness",
+      prompt: "Judge {{input}} against {{output}}",
+      outputDefinition: numericOutputDefinition,
+    });
   });
 
   it("rejects observation continuous evaluations that use expected_output mappings", () => {
@@ -123,6 +127,32 @@ describe("unstable public eval contracts", () => {
       }).success,
     ).toBe(false);
   });
+
+  it("rejects non-integer unstable pagination values", () => {
+    expect(
+      GetUnstableEvaluatorsQuery.safeParse({
+        page: 1.5,
+        limit: 10,
+      }).success,
+    ).toBe(false);
+    expect(
+      GetUnstableContinuousEvaluationsQuery.safeParse({
+        page: 1,
+        limit: 1.5,
+      }).success,
+    ).toBe(false);
+  });
+
+  it("ignores unknown continuous evaluation update fields for forward compatibility", () => {
+    const parsed = PatchUnstableContinuousEvaluationBody.parse({
+      name: "answer_quality",
+      newFieldFromFutureVersion: true,
+    });
+
+    expect(parsed).toEqual({
+      name: "answer_quality",
+    });
+  });
 });
 
 describe("unstable public eval adapters", () => {
@@ -175,6 +205,45 @@ describe("unstable public eval adapters", () => {
         },
       ],
     });
+  });
+
+  it("reads legacy expected output mapping column ids without failing", () => {
+    const continuousEvaluation = toApiContinuousEvaluation({
+      id: "ceval_123",
+      projectId: "project_123",
+      evalTemplateId: "tmpl_project_v2",
+      scoreName: "expected_output_match",
+      targetObject: EvalTargetObject.EXPERIMENT,
+      filter: [],
+      variableMapping: [
+        {
+          templateVariable: "expected_output",
+          selectedColumnId: "experiment_item_expected_output",
+          jsonSelector: null,
+        },
+      ],
+      sampling: 1,
+      status: JobConfigState.ACTIVE,
+      blockedAt: null,
+      blockReason: null,
+      blockMessage: null,
+      createdAt: new Date("2026-03-30T08:00:00.000Z"),
+      updatedAt: new Date("2026-03-30T08:00:00.000Z"),
+      evalTemplate: {
+        id: "tmpl_project_v2",
+        projectId: "project_123",
+        name: "Answer correctness",
+        vars: ["expected_output"],
+        prompt: "Judge {{expected_output}}",
+      },
+    } as unknown as StoredPublicContinuousEvaluationConfig);
+
+    expect(continuousEvaluation.mapping).toEqual([
+      {
+        variable: "expected_output",
+        source: "expected_output",
+      },
+    ]);
   });
 
   it("rejects invalid static filter option values", () => {

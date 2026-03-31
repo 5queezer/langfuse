@@ -35,20 +35,16 @@ export const GetUnstableEvaluatorsResponse = z
   })
   .strict();
 
-export const GetUnstableEvaluatorQuery = z
-  .object({
-    evaluatorId: z.string(),
-  })
-  .strict();
+export const GetUnstableEvaluatorQuery = z.object({
+  evaluatorId: z.string(),
+});
 
 export const GetUnstableEvaluatorResponse = APIEvaluator;
 
-export const PostUnstableEvaluatorBody = z
-  .object({
-    name: z.string().min(1),
-    ...PublicEvaluatorDefinitionInput.shape,
-  })
-  .strict();
+export const PostUnstableEvaluatorBody = z.object({
+  name: z.string().min(1),
+  ...PublicEvaluatorDefinitionInput.shape,
+});
 export type PostUnstableEvaluatorBodyType = z.infer<
   typeof PostUnstableEvaluatorBody
 >;

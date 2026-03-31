@@ -1,4 +1,5 @@
 import { auditLog } from "@/src/features/audit-logs/auditLog";
+import { EVAL_TEMPLATE_AUDIT_LOG_RESOURCE_TYPE } from "@/src/features/evals/server/audit-log-resource-types";
 import {
   createPublicEvaluator,
   listPublicEvaluators,
@@ -38,7 +39,7 @@ export default withUnstablePublicEvalsMiddlewares({
 
       await auditLog({
         action: "create",
-        resourceType: "evalTemplate",
+        resourceType: EVAL_TEMPLATE_AUDIT_LOG_RESOURCE_TYPE,
         resourceId: evaluator.id,
         projectId: auth.scope.projectId,
         orgId: auth.scope.orgId,
