@@ -120,6 +120,20 @@ describe("OtelIngestionProcessor.validateResourceSpans", () => {
     expect(error!.spanId).toBe("bad-span");
   });
 
+  it("rejects oversized spans", () => {
+    // Create a span with a huge attribute value exceeding LANGFUSE_OTEL_MAX_SPAN_BYTES (default 9.5MB)
+    const hugeValue = "x".repeat(10_000_000); // 10MB string
+    const spans = wrapInResourceSpans([
+      makeSpan("big-span", {
+        "some.large.attribute": hugeValue,
+      }),
+    ]);
+    const error = processor.validateResourceSpans(spans);
+    expect(error).not.toBeNull();
+    expect(error!.reason).toBe("span_too_large");
+    expect(error!.spanId).toBe("big-span");
+  });
+
   it("rejects intValue cost_details (non-string OTEL type)", () => {
     // Raw KeyValue[] — bypass makeSpan to test intValue directly
     const spans = wrapInResourceSpans([
@@ -129,6 +143,34 @@ describe("OtelIngestionProcessor.validateResourceSpans", () => {
           {
             key: "langfuse.observation.cost_details",
             value: { intValue: 42 },
+          },
+        ],
+      },
+    ]);
+    const error = processor.validateResourceSpans(spans);
+    expect(error).not.toBeNull();
+  });
+
+  it("rejects malformed span (null attribute value) with 400, not 500", () => {
+    const spans = wrapInResourceSpans([
+      {
+        spanId: "span1",
+        attributes: [{ key: "some.attr", value: null }],
+      },
+    ]);
+    const error = processor.validateResourceSpans(spans);
+    expect(error).not.toBeNull();
+    expect(error!.reason).toBe("malformed_span");
+  });
+
+  it("rejects span with unparsable spanId with 400, not 500", () => {
+    const spans = wrapInResourceSpans([
+      {
+        spanId: { broken: true }, // not a string or Uint8Array
+        attributes: [
+          {
+            key: "langfuse.observation.cost_details",
+            value: { stringValue: "115" },
           },
         ],
       },

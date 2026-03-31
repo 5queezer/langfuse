@@ -227,7 +227,11 @@ export class OtelIngestionProcessor {
   }
 
   /**
-   * Validates that JSON-string attributes on OTEL spans contain valid objects.
+   * Validates OTEL spans before queueing. Checks:
+   * - resourceSpans is an array
+   * - Individual span serialized size is under LANGFUSE_OTEL_MAX_SPAN_BYTES
+   * - cost_details / usage_details attributes are valid JSON objects
+   *
    * Reuses extractSpanAttributes / parseId so attribute format handling is not duplicated.
    * Returns an error on the first invalid span, or null if all spans are valid.
    */
@@ -242,20 +246,48 @@ export class OtelIngestionProcessor {
         message: "resourceSpans must be an array",
       };
     }
+
+    const maxSpanBytes = env.LANGFUSE_OTEL_MAX_SPAN_BYTES;
+
     for (const resourceSpan of resourceSpans) {
       for (const scopeSpan of resourceSpan?.scopeSpans ?? []) {
         for (const span of scopeSpan?.spans ?? []) {
-          const attrs = this.extractSpanAttributes(span);
-          const spanId =
-            span?.spanId != null ? this.parseId(span.spanId) : "unknown";
+          let spanId = "unknown";
+          try {
+            if (span?.spanId != null) {
+              spanId = this.parseId(span.spanId);
+            }
 
-          for (const attr of JSON_OBJECT_ATTRIBUTES) {
-            const error = validateJsonObjectAttribute(
-              attrs[attr],
-              attr,
+            // Per-span size estimate — prevents ClickHouse "extremely large" row errors.
+            // Sums string attribute value lengths (input, output, metadata are all stringValues).
+            // Avoids JSON.stringify which would be prohibitively expensive on oversized spans.
+            const estimatedBytes = this.estimateSpanBytes(span);
+            if (estimatedBytes > maxSpanBytes) {
+              return {
+                spanId,
+                attribute: "span",
+                reason: "span_too_large",
+                message: `Span exceeds maximum size of ${maxSpanBytes} bytes`,
+              };
+            }
+
+            const attrs = this.extractSpanAttributes(span);
+
+            for (const attr of JSON_OBJECT_ATTRIBUTES) {
+              const error = validateJsonObjectAttribute(
+                attrs[attr],
+                attr,
+                spanId,
+              );
+              if (error) return error;
+            }
+          } catch {
+            return {
               spanId,
-            );
-            if (error) return error;
+              attribute: "span",
+              reason: "malformed_span",
+              message: `Span could not be validated due to malformed data`,
+            };
           }
         }
       }
@@ -1161,6 +1193,26 @@ export class OtelIngestionProcessor {
         return acc;
       }, {}) ?? {}
     );
+  }
+
+  /**
+   * Estimates span size by summing string attribute value lengths.
+   * The large payloads (input, output, metadata) are all string attributes,
+   * so this is a good proxy for the final ClickHouse row size without
+   * the cost of JSON.stringify on the entire span.
+   */
+  private estimateSpanBytes(span: any): number {
+    const attributes = span?.attributes;
+    if (!Array.isArray(attributes)) return 0;
+
+    let total = 0;
+    for (const attr of attributes) {
+      const val = attr?.value?.stringValue;
+      if (typeof val === "string") {
+        total += val.length;
+      }
+    }
+    return total;
   }
 
   private convertValueToPlainJavascript(value: Record<string, any>): any {

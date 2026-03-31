@@ -1,3 +1,5 @@
+import { LangfuseOtelSpanAttributes } from "./attributes";
+
 /**
  * Returns true if the value is a plain object (not null, not an array).
  */
@@ -20,8 +22,8 @@ export const MAX_DETAILS_ATTRIBUTE_BYTES = 2048;
  * Attributes that must be valid JSON objects when present on a span.
  */
 export const JSON_OBJECT_ATTRIBUTES = [
-  "langfuse.observation.cost_details",
-  "langfuse.observation.usage_details",
+  LangfuseOtelSpanAttributes.OBSERVATION_COST_DETAILS,
+  LangfuseOtelSpanAttributes.OBSERVATION_USAGE_DETAILS,
 ] as const;
 
 /**
