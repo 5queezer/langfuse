@@ -1,11 +1,11 @@
 import { env } from "@/src/env.mjs";
 import {
   LocalCache,
-  OrgEnrichedApiKey,
   getJsonEntrySize,
   kilobytesToBytes,
   megabytesToBytes,
 } from "@langfuse/shared/src/server";
+import type { OrgEnrichedApiKey } from "@langfuse/shared/src/server";
 import { type z } from "zod";
 
 type CachedOrgEnrichedApiKey = z.infer<typeof OrgEnrichedApiKey>;

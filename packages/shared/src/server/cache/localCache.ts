@@ -8,7 +8,7 @@ export type LocalCacheLoadResult<V> = {
   source?: string;
 };
 
-export type LocalCacheConfig<K extends {}, V> = {
+export type LocalCacheConfig<K extends {}, V extends {}> = {
   namespace: string;
   enabled: boolean;
   ttlMs: number;
@@ -18,7 +18,7 @@ export type LocalCacheConfig<K extends {}, V> = {
   sizeCalculation: (value: V, key: K) => number;
 };
 
-export class LocalCache<K extends {}, V> {
+export class LocalCache<K extends {}, V extends {}> {
   private readonly cache: LRUCache<K, V>;
   private readonly inflightLoads = new Map<
     K,

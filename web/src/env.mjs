@@ -297,7 +297,11 @@ export const env = createEnv({
       .enum(["true", "false"])
       .default("true"),
     LANGFUSE_LOCAL_CACHE_API_KEY_TTL_MS: z.coerce.number().default(1000),
-    LANGFUSE_LOCAL_CACHE_API_KEY_MAX: z.coerce.number().int().positive().default(10000),
+    LANGFUSE_LOCAL_CACHE_API_KEY_MAX: z.coerce
+      .number()
+      .int()
+      .positive()
+      .default(10000),
     LANGFUSE_LOCAL_CACHE_API_KEY_MAX_SIZE_MB: z.coerce
       .number()
       .positive()
