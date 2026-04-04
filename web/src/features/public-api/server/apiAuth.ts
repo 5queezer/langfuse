@@ -326,8 +326,9 @@ export class ApiAuthService {
     // add the key to redis for future use if available, this does not throw
     // only do so if the new hashkey exists already.
     if (apiKeyAndOrganisation && apiKeyAndOrganisation.fastHashedSecretKey) {
-      const cachedApiKey =
-        this.convertToRedisRepresentation(apiKeyAndOrganisation);
+      const cachedApiKey = this.convertToRedisRepresentation(
+        apiKeyAndOrganisation,
+      );
       await this.addApiKeyToRedis(hash, cachedApiKey);
       setApiKeyInLocalCache(hash, cachedApiKey);
     }

@@ -138,8 +138,7 @@ export const getJsonEntrySize = (key: string, value: unknown): number => {
   const serializedValue = JSON.stringify(value) ?? "undefined";
 
   return (
-    Buffer.byteLength(key, "utf8") +
-    Buffer.byteLength(serializedValue, "utf8")
+    Buffer.byteLength(key, "utf8") + Buffer.byteLength(serializedValue, "utf8")
   );
 };
 
