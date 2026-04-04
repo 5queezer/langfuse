@@ -72,10 +72,16 @@ export async function findModel(p: ModelMatchProps): Promise<ModelWithPrices> {
 
           const postgresModel = await findModelInPostgres(p);
           if (postgresModel) {
-            const pricingTiers = await findPricingTiersForModel(postgresModel.id);
+            const pricingTiers = await findPricingTiersForModel(
+              postgresModel.id,
+            );
 
             if (env.LANGFUSE_CACHE_MODEL_MATCH_ENABLED === "true") {
-              await addModelWithPricingTiersToRedis(p, postgresModel, pricingTiers);
+              await addModelWithPricingTiersToRedis(
+                p,
+                postgresModel,
+                pricingTiers,
+              );
             }
 
             return {

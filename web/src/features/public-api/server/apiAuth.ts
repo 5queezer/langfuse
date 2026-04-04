@@ -328,10 +328,7 @@ export class ApiAuthService {
     if (apiKeyAndOrganisation && apiKeyAndOrganisation.fastHashedSecretKey) {
       const cachedApiKey =
         this.convertToRedisRepresentation(apiKeyAndOrganisation);
-      await this.addApiKeyToRedis(
-        hash,
-        cachedApiKey,
-      );
+      await this.addApiKeyToRedis(hash, cachedApiKey);
       setApiKeyInLocalCache(hash, cachedApiKey);
     }
     return apiKeyAndOrganisation

@@ -8,7 +8,7 @@ export type LocalCacheLoadResult<V> = {
   source?: string;
 };
 
-export type LocalCacheConfig<K, V> = {
+export type LocalCacheConfig<K extends {}, V> = {
   namespace: string;
   enabled: boolean;
   ttlMs: number;
@@ -18,9 +18,12 @@ export type LocalCacheConfig<K, V> = {
   sizeCalculation: (value: V, key: K) => number;
 };
 
-export class LocalCache<K, V> {
+export class LocalCache<K extends {}, V> {
   private readonly cache: LRUCache<K, V>;
-  private readonly inflightLoads = new Map<K, Promise<LocalCacheLoadResult<V>>>();
+  private readonly inflightLoads = new Map<
+    K,
+    Promise<LocalCacheLoadResult<V>>
+  >();
 
   constructor(private readonly config: LocalCacheConfig<K, V>) {
     this.cache = new LRUCache<K, V>({
@@ -140,8 +143,7 @@ export const getJsonEntrySize = (key: string, value: unknown): number => {
   );
 };
 
-export const kilobytesToBytes = (valueInKb: number): number =>
-  valueInKb * 1024;
+export const kilobytesToBytes = (valueInKb: number): number => valueInKb * 1024;
 
 export const megabytesToBytes = (valueInMb: number): number =>
   valueInMb * 1024 * 1024;
