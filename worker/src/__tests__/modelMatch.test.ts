@@ -1,7 +1,8 @@
-import { expect, describe, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@langfuse/shared/src/db";
 import { createOrgProjectAndApiKey, redis } from "@langfuse/shared/src/server";
 import {
+  clearModelMatchLocalCache,
   findModel,
   findModelInPostgres,
   getRedisModelKey,
@@ -10,6 +11,10 @@ import {
 import { v4 as uuidv4 } from "uuid";
 
 describe("modelMatch", () => {
+  beforeEach(() => {
+    clearModelMatchLocalCache();
+  });
+
   describe("findModel", () => {
     it("should return model with prices from Redis if available", async () => {
       const { projectId } = await createOrgProjectAndApiKey();
@@ -47,7 +52,7 @@ describe("modelMatch", () => {
         model: "gpt-4",
       });
 
-      // Now find it again - should come from Redis
+      // Now find it again - it should come from cache without changing the result
       const result = await findModel({
         projectId,
         model: "gpt-4",
@@ -143,6 +148,51 @@ describe("modelMatch", () => {
       });
       const cachedValue = await redis?.get(redisKey);
       expect(cachedValue).toBe("LANGFUSE_MODEL_MATCH_NOT_FOUND");
+    });
+
+    it("should serve models from the local cache after the Redis entry is deleted", async () => {
+      const { projectId } = await createOrgProjectAndApiKey();
+      const model = await prisma.model.create({
+        data: {
+          projectId,
+          modelName: "gpt-4o",
+          matchPattern: "gpt-4o",
+          unit: "TOKENS",
+        },
+      });
+
+      await findModel({ projectId, model: "gpt-4o" });
+
+      const redisKey = getRedisModelKey({ projectId, model: "gpt-4o" });
+      await redis?.del(redisKey);
+
+      const result = await findModel({ projectId, model: "gpt-4o" });
+
+      expect(result.model?.id).toBe(model.id);
+      expect(await redis?.get(redisKey)).toBeNull();
+    });
+
+    it("should locally cache not-found models for a short time", async () => {
+      const { projectId } = await createOrgProjectAndApiKey();
+      const modelName = "new-model-after-cache";
+
+      await findModel({ projectId, model: modelName });
+
+      const redisKey = getRedisModelKey({ projectId, model: modelName });
+      await redis?.del(redisKey);
+
+      await prisma.model.create({
+        data: {
+          projectId,
+          modelName,
+          matchPattern: modelName,
+          unit: "TOKENS",
+        },
+      });
+
+      const result = await findModel({ projectId, model: modelName });
+
+      expect(result.model).toBeNull();
     });
   });
 
