@@ -28,6 +28,14 @@ export class SlackApiError extends Error {
   }
 }
 
+/** OAuth scopes requested when installing the Slack app. */
+export const SLACK_BOT_SCOPES = [
+  "channels:read", // read public channels
+  "groups:read", // read private channels
+  "chat:write", // send messages to channels the bot is a member of
+  "chat:write.public", // send messages to public channels that the bot is not a member of
+] as const;
+
 // Types for Slack integration
 export interface SlackChannel {
   id: string;
@@ -110,12 +118,7 @@ export class SlackService {
       clientSecret: env.SLACK_CLIENT_SECRET!,
       stateSecret: env.SLACK_STATE_SECRET!,
       installUrlOptions: {
-        scopes: [
-          "channels:read",
-          "groups:read",
-          "chat:write",
-          "chat:write.public",
-        ],
+        scopes: [...SLACK_BOT_SCOPES],
       },
       installationStore: {
         storeInstallation: async (installation) => {
