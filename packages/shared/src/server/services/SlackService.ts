@@ -14,6 +14,20 @@ import { env } from "../../env";
 import { prisma } from "../../db";
 import { encrypt, decrypt } from "../../encryption";
 
+/**
+ * Error thrown by SlackService when a Slack API call fails.
+ * Preserves the Slack error code so callers can provide user-friendly messages.
+ */
+export class SlackApiError extends Error {
+  constructor(
+    message: string,
+    public readonly slackErrorCode?: string,
+  ) {
+    super(message);
+    this.name = "SlackApiError";
+  }
+}
+
 // Types for Slack integration
 export interface SlackChannel {
   id: string;
@@ -96,7 +110,12 @@ export class SlackService {
       clientSecret: env.SLACK_CLIENT_SECRET!,
       stateSecret: env.SLACK_STATE_SECRET!,
       installUrlOptions: {
-        scopes: ["channels:read", "chat:write", "chat:write.public"],
+        scopes: [
+          "channels:read",
+          "groups:read",
+          "chat:write",
+          "chat:write.public",
+        ],
       },
       installationStore: {
         storeInstallation: async (installation) => {
@@ -296,6 +315,35 @@ export class SlackService {
   }
 
   /**
+   * Execute a Slack API call with automatic retry on rate-limit (429) errors.
+   * Reads the `retryAfter` value from the SDK error and sleeps accordingly.
+   */
+  private async withRateLimitRetry<T>(
+    fn: () => Promise<T>,
+    maxRetries: number = 3,
+  ): Promise<T> {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await fn();
+      } catch (error: any) {
+        const isRateLimited =
+          error?.code === "slack_webapi_rate_limited_error" ||
+          error?.data?.error === "ratelimited";
+
+        if (isRateLimited && attempt < maxRetries) {
+          const retryAfter = (error.retryAfter ?? 30) as number;
+          logger.warn(
+            `Slack rate limited, retrying in ${retryAfter}s (attempt ${attempt + 1}/${maxRetries})`,
+          );
+          await new Promise((r) => setTimeout(r, retryAfter * 1000));
+          continue;
+        }
+        throw error;
+      }
+    }
+  }
+
+  /**
    * Recursively fetch all channels accessible to the bot
    * Uses cursor-based pagination defined by Slack API https://api.slack.com/apis/pagination
    */
@@ -305,12 +353,14 @@ export class SlackService {
     fetchedRecords: number = 0,
   ): Promise<SlackChannel[]> {
     try {
-      const result = await client.conversations.list({
-        exclude_archived: true,
-        types: "public_channel",
-        limit: 200,
-        cursor: cursor,
-      });
+      const result = await this.withRateLimitRetry(() =>
+        client.conversations.list({
+          exclude_archived: true,
+          types: "public_channel,private_channel",
+          limit: env.SLACK_PAGE_SIZE,
+          cursor: cursor,
+        }),
+      );
 
       if (!result.ok) {
         throw new Error(`Slack API error: ${result.error}`);
@@ -374,17 +424,42 @@ export class SlackService {
   }
 
   /**
+   * Get channel info by ID via conversations.info.
+   */
+  async getChannelInfo(
+    client: WebClient,
+    channelId: string,
+  ): Promise<SlackChannel | null> {
+    try {
+      const result = await this.withRateLimitRetry(() =>
+        client.conversations.info({ channel: channelId }),
+      );
+      if (!result.ok || !result.channel) return null;
+      return {
+        id: result.channel.id!,
+        name: result.channel.name!,
+        isPrivate: result.channel.is_private || false,
+        isMember: result.channel.is_member || false,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * Send a message to a Slack channel
    */
   async sendMessage(params: SlackMessageParams): Promise<SlackMessageResponse> {
     try {
-      const result = await params.client.chat.postMessage({
-        channel: params.channelId,
-        blocks: params.blocks,
-        text: params.text || "Langfuse Notification",
-        unfurl_links: false,
-        unfurl_media: false,
-      });
+      const result = await this.withRateLimitRetry(() =>
+        params.client.chat.postMessage({
+          channel: params.channelId,
+          blocks: params.blocks,
+          text: params.text || "Langfuse Notification",
+          unfurl_links: false,
+          unfurl_media: false,
+        }),
+      );
 
       if (!result.ok) {
         throw new Error(`Failed to send message: ${result.error}`);
@@ -401,13 +476,16 @@ export class SlackService {
       });
 
       return response;
-    } catch (error) {
+    } catch (error: any) {
       logger.error("Failed to send message", {
         error,
         channelId: params.channelId,
       });
-      throw new Error(
+
+      const slackErrorCode = error?.data?.error as string | undefined;
+      throw new SlackApiError(
         `Failed to send message: ${error instanceof Error ? error.message : "Unknown error"}`,
+        slackErrorCode,
       );
     }
   }
