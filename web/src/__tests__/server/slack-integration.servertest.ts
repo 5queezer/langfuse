@@ -196,7 +196,10 @@ describe("Slack Integration", () => {
           },
         ];
 
-        mockSlackService.getChannels.mockResolvedValue(mockChannels);
+        mockSlackService.getChannels.mockResolvedValue({
+          channels: mockChannels,
+          hasPrivateChannelAccess: true,
+        });
 
         const { caller, project } = await prepare();
 
@@ -217,6 +220,7 @@ describe("Slack Integration", () => {
 
         expect(result).toMatchObject({
           channels: mockChannels,
+          hasPrivateChannelAccess: true,
           teamId: "T123456",
           teamName: "Test Team",
         });
@@ -501,9 +505,12 @@ describe("Slack Integration", () => {
 
     it("should NEVER expose raw bot tokens in any API response", async () => {
       mockSlackService.validateClient.mockResolvedValue(true);
-      mockSlackService.getChannels.mockResolvedValue([
-        { id: "C123456", name: "general", isPrivate: false, isMember: true },
-      ]);
+      mockSlackService.getChannels.mockResolvedValue({
+        channels: [
+          { id: "C123456", name: "general", isPrivate: false, isMember: true },
+        ],
+        hasPrivateChannelAccess: true,
+      });
       mockSlackService.sendMessage.mockResolvedValue({
         messageTs: "1234567890.123456",
         channel: "C123456",

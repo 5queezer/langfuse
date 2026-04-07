@@ -112,7 +112,8 @@ export const slackRouter = createTRPCRouter({
         const client = await slackService.getWebClientForProject(
           input.projectId,
         );
-        const channels = await slackService.getChannels(client);
+        const { channels, hasPrivateChannelAccess } =
+          await slackService.getChannels(client);
 
         await auditLog({
           session: ctx.session,
@@ -124,6 +125,7 @@ export const slackRouter = createTRPCRouter({
 
         return {
           channels,
+          hasPrivateChannelAccess,
           teamId: integration.teamId,
           teamName: integration.teamName,
         };

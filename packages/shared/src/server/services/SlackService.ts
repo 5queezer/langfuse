@@ -44,6 +44,11 @@ export interface SlackChannel {
   isMember: boolean;
 }
 
+export interface GetChannelsResult {
+  channels: SlackChannel[];
+  hasPrivateChannelAccess: boolean;
+}
+
 export interface SlackMessageParams {
   client: WebClient;
   channelId: string;
@@ -352,6 +357,7 @@ export class SlackService {
    */
   private async getChannelsRecursive(
     client: WebClient,
+    channelTypes: string = "public_channel,private_channel",
     cursor?: string,
     fetchedRecords: number = 0,
   ): Promise<SlackChannel[]> {
@@ -359,7 +365,7 @@ export class SlackService {
       const result = await this.withRateLimitRetry(() =>
         client.conversations.list({
           exclude_archived: true,
-          types: "public_channel,private_channel",
+          types: channelTypes,
           limit: env.SLACK_PAGE_SIZE,
           cursor: cursor,
         }),
@@ -386,6 +392,7 @@ export class SlackService {
         try {
           const nextPageChannels = await this.getChannelsRecursive(
             client,
+            channelTypes,
             nextCursor,
             fetchedRecords + channels.length,
           );
@@ -400,25 +407,54 @@ export class SlackService {
       return channels;
     } catch (error) {
       logger.error("Failed to fetch channels recursively", { error, cursor });
-      throw new Error(
-        `Failed to fetch channels: ${error instanceof Error ? error.message : "Unknown error"}`,
-      );
+      throw error;
     }
   }
 
   /**
-   * Get channels accessible to the bot
+   * Get channels accessible to the bot.
    */
-  async getChannels(client: WebClient): Promise<SlackChannel[]> {
+  async getChannels(client: WebClient): Promise<GetChannelsResult> {
     try {
-      const channels = await this.getChannelsRecursive(client);
+      const channels = await this.getChannelsRecursive(
+        client,
+        "public_channel,private_channel",
+      );
 
       logger.debug("Retrieved channels from Slack", {
         channelCount: channels.length,
       });
 
-      return channels;
-    } catch (error) {
+      return { channels, hasPrivateChannelAccess: true };
+    } catch (error: any) {
+      // we added `groups:read` scope after initial release, so older installations may not have it.
+      // Detect this case and fall back to fetching only public channels instead of failing completely.
+      const isMissingGroupsRead =
+        error?.data?.error === "missing_scope" &&
+        error?.data?.needed === "groups:read";
+
+      if (isMissingGroupsRead) {
+        logger.info(
+          "Bot token lacks groups:read scope, falling back to public channels only",
+        );
+
+        try {
+          const channels = await this.getChannelsRecursive(
+            client,
+            "public_channel",
+          );
+
+          return { channels, hasPrivateChannelAccess: false };
+        } catch (fallbackError) {
+          logger.error("Failed to fetch public channels fallback", {
+            error: fallbackError,
+          });
+          throw new Error(
+            `Failed to fetch channels: ${fallbackError instanceof Error ? fallbackError.message : "Unknown error"}`,
+          );
+        }
+      }
+
       logger.error("Failed to fetch channels", { error });
       throw new Error(
         `Failed to fetch channels: ${error instanceof Error ? error.message : "Unknown error"}`,

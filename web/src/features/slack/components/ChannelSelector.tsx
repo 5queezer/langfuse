@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useCallback } from "react";
-import { RefreshCw, Search, Hash, Lock } from "lucide-react";
+import { RefreshCw, Search, Hash, Lock, AlertTriangle } from "lucide-react";
 import { Button } from "@/src/components/ui/button";
 import {
   Popover,
@@ -352,6 +352,30 @@ export const ChannelSelector: React.FC<ChannelSelectorProps> = ({
           {filteredChannels.length} of {channelsData.channels.length} channels
           {memberOnly && " (member only)"}
         </div>
+      )}
+
+      {/* Private channel scope warning */}
+      {channelsData && !channelsData.hasPrivateChannelAccess && (
+        <Alert>
+          <AlertTriangle className="h-4 w-4" />
+          <AlertDescription>
+            Private channels are not visible. To access private channels,{" "}
+            <button
+              type="button"
+              className="font-medium underline"
+              onClick={() =>
+                window.open(
+                  `/api/public/slack/install?projectId=${projectId}`,
+                  "slack-reauth",
+                  "width=600,height=700",
+                )
+              }
+            >
+              re-authenticate your Slack integration
+            </button>{" "}
+            to grant the required permissions.
+          </AlertDescription>
+        </Alert>
       )}
     </div>
   );
