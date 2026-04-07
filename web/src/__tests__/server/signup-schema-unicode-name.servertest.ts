@@ -51,6 +51,50 @@ describe("signupSchema name validation", () => {
     expect(result.success).toBe(false);
   });
 
+  it("accepts names with smart/curly apostrophes (U+2019)", () => {
+    const result = signupSchema.safeParse({
+      ...validBaseInput,
+      name: "O\u2019Brien",
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.name).toBe("O'Brien");
+    }
+  });
+
+  it("accepts names with left single quotation mark (U+2018)", () => {
+    const result = signupSchema.safeParse({
+      ...validBaseInput,
+      name: "O\u2018Brien",
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.name).toBe("O'Brien");
+    }
+  });
+
+  it("rejects punctuation-only names", () => {
+    for (const name of ["---", "...", "'''"]) {
+      const result = signupSchema.safeParse({
+        ...validBaseInput,
+        name,
+      });
+
+      expect(result.success).toBe(false);
+    }
+  });
+
+  it("rejects whitespace-only names", () => {
+    const result = signupSchema.safeParse({
+      ...validBaseInput,
+      name: "   ",
+    });
+
+    expect(result.success).toBe(false);
+  });
+
   it("rejects names with disallowed punctuation", () => {
     const result = signupSchema.safeParse({
       ...validBaseInput,
