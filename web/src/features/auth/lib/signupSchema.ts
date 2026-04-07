@@ -20,7 +20,7 @@ export const passwordSchema = z
 export const signupSchema = z.object({
   name: StringNoHTMLNonEmpty.refine((value) => noUrlCheck(value), {
     message: "Input should not contain a URL",
-  }).refine((value) => /^[a-zA-Z0-9\s]+$/.test(value), {
+  }).refine((value) => /^[\p{L}\p{M}\p{N}\s]+$/u.test(value), {
     message: "Name can only contain letters, numbers, and spaces",
   }),
   email: z.string().email(),
