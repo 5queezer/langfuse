@@ -17,12 +17,17 @@ export const passwordSchema = z
       "Please choose a secure password by combining letters, numbers, and special characters.",
   });
 
-export const signupSchema = z.object({
-  name: StringNoHTMLNonEmpty.refine((value) => noUrlCheck(value), {
+export const nameSchema = StringNoHTMLNonEmpty.refine(
+  (value) => noUrlCheck(value),
+  {
     message: "Input should not contain a URL",
-  }).refine((value) => /^[\p{L}\p{M}\p{N}\s]+$/u.test(value), {
-    message: "Name can only contain letters, numbers, and spaces",
-  }),
+  },
+).refine((value) => /^[\p{L}\p{M}\p{N}\s]+$/u.test(value), {
+  message: "Name can only contain letters, numbers, and spaces",
+});
+
+export const signupSchema = z.object({
+  name: nameSchema,
   email: z.string().email(),
   password: passwordSchema,
   referralSource: z.string().optional(),
