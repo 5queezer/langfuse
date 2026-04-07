@@ -15,6 +15,33 @@ describe("signupSchema name validation", () => {
     expect(result.success).toBe(true);
   });
 
+  it("accepts names with hyphens", () => {
+    const result = signupSchema.safeParse({
+      ...validBaseInput,
+      name: "Smith-Jones",
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts names with apostrophes", () => {
+    const result = signupSchema.safeParse({
+      ...validBaseInput,
+      name: "O'Brien",
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts names with periods", () => {
+    const result = signupSchema.safeParse({
+      ...validBaseInput,
+      name: "Dr. Smith",
+    });
+
+    expect(result.success).toBe(true);
+  });
+
   it("rejects names longer than 100 characters", () => {
     const result = signupSchema.safeParse({
       ...validBaseInput,
@@ -24,7 +51,7 @@ describe("signupSchema name validation", () => {
     expect(result.success).toBe(false);
   });
 
-  it("rejects names with punctuation", () => {
+  it("rejects names with disallowed punctuation", () => {
     const result = signupSchema.safeParse({
       ...validBaseInput,
       name: "André!",

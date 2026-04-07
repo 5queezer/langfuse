@@ -24,8 +24,9 @@ export const nameSchema = StringNoHTMLNonEmpty.max(
   .refine((value) => noUrlCheck(value), {
     message: "Input should not contain a URL",
   })
-  .refine((value) => /^[\p{L}\p{M}\p{N}\s]+$/u.test(value), {
-    message: "Name can only contain letters, numbers, and spaces",
+  .refine((value) => /^[\p{L}\p{M}\p{N}\s.'\-]+$/u.test(value), {
+    message:
+      "Name can only contain letters, numbers, spaces, hyphens, apostrophes, and periods",
   });
 
 export const signupSchema = z.object({
