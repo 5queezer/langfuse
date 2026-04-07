@@ -30,7 +30,7 @@ export const nameSchema = StringNoHTMLNonEmpty.max(
     message:
       "Name can only contain letters, numbers, spaces, hyphens, apostrophes, and periods",
   })
-  .refine((value) => /[\p{L}\p{M}]/u.test(value), {
+  .refine((value) => /\p{L}/u.test(value), {
     message: "Name must contain at least one letter",
   });
 
