@@ -315,6 +315,13 @@ export const ChannelSelector: React.FC<ChannelSelectorProps> = ({
               </div>
             )}
 
+            {/* Empty state when no channels and no search */}
+            {!noLocalMatches && filteredChannels.length === 0 && (
+              <div className="text-muted-foreground px-3 py-4 text-center text-sm">
+                No channels available. Invite the bot to a channel first.
+              </div>
+            )}
+
             {/* No local matches — offer to use the typed name directly */}
             {noLocalMatches && (
               <div className="p-1">

@@ -130,6 +130,23 @@ export const SlackActionForm: React.FC<SlackActionFormProps> = ({
                 disabled={disabled}
                 size="sm"
                 buttonText="Test Channel"
+                onSuccess={(channelInfo) => {
+                  form.setValue("slack.channelId", channelInfo.id);
+                  form.setValue(
+                    "slack.channelName",
+                    channelInfo.name ?? selectedChannel?.name ?? "",
+                  );
+                  setSelectedChannel((prev) =>
+                    prev
+                      ? {
+                          ...prev,
+                          id: channelInfo.id,
+                          name: channelInfo.name ?? prev.name,
+                          isPrivate: channelInfo.isPrivate ?? prev.isPrivate,
+                        }
+                      : prev,
+                  );
+                }}
               />
               <p className="text-muted-foreground text-sm">
                 Test this channel to verify the bot can send messages.

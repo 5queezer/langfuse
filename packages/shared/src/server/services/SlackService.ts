@@ -339,7 +339,7 @@ export class SlackService {
           error?.data?.error === "ratelimited";
 
         if (isRateLimited && attempt < maxRetries) {
-          const retryAfter = (error.retryAfter ?? 30) as number;
+          const retryAfter = Math.min((error.retryAfter ?? 30) as number, 60);
           logger.warn(
             `Slack rate limited, retrying in ${retryAfter}s (attempt ${attempt + 1}/${maxRetries})`,
           );
