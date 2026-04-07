@@ -18,8 +18,10 @@ import { cn } from "@/src/utils/tailwind";
 export interface SlackChannel {
   id: string;
   name: string;
-  isPrivate: boolean;
-  isMember: boolean;
+  /** Only known for channels from the fetched list or after a resolved test message */
+  isPrivate?: boolean;
+  /** Only known for channels from the fetched list */
+  isMember?: boolean;
 }
 
 /**
@@ -49,7 +51,7 @@ interface ChannelSelectorProps {
 const ESTIMATED_ITEM_HEIGHT = 32;
 const MAX_VISIBLE_ITEMS = 10;
 
-const ChannelIcon: React.FC<{ isPrivate: boolean }> = ({ isPrivate }) =>
+const ChannelIcon: React.FC<{ isPrivate?: boolean }> = ({ isPrivate }) =>
   isPrivate ? (
     <Lock className="text-muted-foreground h-4 w-4 shrink-0" />
   ) : (
