@@ -4,12 +4,15 @@ import {
   authenticatedProcedure,
 } from "@/src/server/api/trpc";
 import { TRPCError } from "@trpc/server";
+import { StringNoHTML } from "@langfuse/shared";
 import { Role, Prisma } from "@langfuse/shared/src/db";
 import type { PrismaClient } from "@langfuse/shared/src/db";
-import { nameSchema } from "@/src/features/auth/lib/signupSchema";
 
 const updateDisplayNameSchema = z.object({
-  name: nameSchema,
+  name: StringNoHTML.min(1, "Name cannot be empty").max(
+    100,
+    "Name must be at most 100 characters",
+  ),
 });
 
 /**

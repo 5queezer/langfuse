@@ -28,14 +28,17 @@ import { useSession, signOut } from "next-auth/react";
 import { SettingsDangerZone } from "@/src/components/SettingsDangerZone";
 import ContainerPage from "@/src/components/layouts/container-page";
 import { useRouter } from "next/router";
-import { nameSchema } from "@/src/features/auth/lib/signupSchema";
+import { StringNoHTML } from "@langfuse/shared";
 import Link from "next/link";
 import { showSuccessToast } from "@/src/features/notifications/showSuccessToast";
 import { showErrorToast } from "@/src/features/notifications/showErrorToast";
 import { env } from "@/src/env.mjs";
 
 const displayNameSchema = z.object({
-  name: nameSchema,
+  name: StringNoHTML.min(1, "Name cannot be empty").max(
+    100,
+    "Name must be at most 100 characters",
+  ),
 });
 
 function UpdateDisplayName() {
