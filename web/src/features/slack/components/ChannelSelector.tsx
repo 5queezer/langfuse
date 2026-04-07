@@ -8,21 +8,19 @@ import {
 } from "@/src/components/ui/popover";
 import { Alert, AlertDescription } from "@/src/components/ui/alert";
 import { Select, SelectTrigger, SelectValue } from "@/src/components/ui/select";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/src/components/ui/command";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { api } from "@/src/utils/api";
-import { VirtualizedList } from "@/src/components/trace2/components/_shared/VirtualizedList";
-import { cn } from "@/src/utils/tailwind";
+import { type SlackChannel } from "@langfuse/shared/src/server";
 
-/**
- * Represents a Slack channel
- */
-export interface SlackChannel {
-  id: string;
-  name: string;
-  /** Only known for channels from the fetched list or after a resolved test message */
-  isPrivate?: boolean;
-  /** Only known for channels from the fetched list */
-  isMember?: boolean;
-}
+export type { SlackChannel };
 
 /**
  * Props for the ChannelSelector component
@@ -48,15 +46,7 @@ interface ChannelSelectorProps {
   showRefreshButton?: boolean;
 }
 
-const ESTIMATED_ITEM_HEIGHT = 32;
-const MAX_VISIBLE_ITEMS = 10;
-
-const ChannelIcon: React.FC<{ isPrivate?: boolean }> = ({ isPrivate }) =>
-  isPrivate ? (
-    <Lock className="text-muted-foreground h-4 w-4 shrink-0" />
-  ) : (
-    <Hash className="text-muted-foreground h-4 w-4 shrink-0" />
-  );
+const ITEM_HEIGHT = 32;
 
 /**
  * A dropdown component for selecting Slack channels with search and filtering capabilities.
@@ -71,6 +61,7 @@ const ChannelIcon: React.FC<{ isPrivate?: boolean }> = ({ isPrivate }) =>
  *
  * The component uses a command palette style interface for better UX when dealing with
  * many channels. It supports both keyboard navigation and mouse interaction.
+ * Items are virtualized with @tanstack/react-virtual to handle large channel lists (~5k).
  *
  * @param projectId - The project ID for the Slack integration
  * @param selectedChannelId - Currently selected channel ID
@@ -96,6 +87,7 @@ export const ChannelSelector: React.FC<ChannelSelectorProps> = ({
   const [open, setOpen] = useState(false);
   const [searchValue, setSearchValue] = useState("");
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [scrollNode, setScrollNode] = useState<HTMLDivElement | null>(null);
 
   // Get available channels
   const {
@@ -146,6 +138,7 @@ export const ChannelSelector: React.FC<ChannelSelectorProps> = ({
       );
     }
 
+    // Sort channels: public channels first, then private, then by name
     return channels.sort((a, b) => {
       if (a.isPrivate !== b.isPrivate) {
         return a.isPrivate ? 1 : -1;
@@ -153,6 +146,13 @@ export const ChannelSelector: React.FC<ChannelSelectorProps> = ({
       return a.name.localeCompare(b.name);
     });
   }, [channelsData?.channels, memberOnly, filterChannels, searchValue]);
+
+  const virtualizer = useVirtualizer({
+    count: filteredChannels.length,
+    getScrollElement: () => scrollNode,
+    estimateSize: () => ITEM_HEIGHT,
+    overscan: 20,
+  });
 
   // Get selected channel info — fall back to the prop for manual entries
   const selectedChannel = useMemo(() => {
@@ -172,42 +172,50 @@ export const ChannelSelector: React.FC<ChannelSelectorProps> = ({
     [onChannelSelect],
   );
 
-  const handleChannelSelect = useCallback(
-    (channelId: string) => {
-      const channel = filteredChannels.find((c) => c.id === channelId);
-      if (channel) selectAndClose(channel);
-    },
-    [filteredChannels, selectAndClose],
-  );
-
   const handleSelectByName = useCallback(() => {
     const name = searchValue.replace(/^#/, "").trim();
     if (!name) return;
-    selectAndClose({ id: `#${name}`, name, isPrivate: false, isMember: false });
+    selectAndClose({
+      id: `#${name}`,
+      name,
+      isPrivate: false,
+      isMember: false,
+    });
   }, [searchValue, selectAndClose]);
 
-  const trimmedSearch = searchValue.trim();
-  const noLocalMatches =
-    trimmedSearch.length > 0 && filteredChannels.length === 0;
+  // Render channel item
+  const renderChannelItem = (channel: SlackChannel) => (
+    <div className="flex w-full items-center gap-2">
+      {channel.isPrivate ? (
+        <Lock className="text-muted-foreground h-4 w-4" />
+      ) : (
+        <Hash className="text-muted-foreground h-4 w-4" />
+      )}
+      <span className="flex-1 truncate">{channel.name}</span>
+    </div>
+  );
 
-  // Loading & error states
+  // Handle loading state
   if (isLoading) {
     return (
-      <div className="flex items-center gap-2">
-        <Select disabled>
-          <SelectTrigger>
-            <SelectValue placeholder="Loading channels..." />
-          </SelectTrigger>
-        </Select>
-        {showRefreshButton && (
-          <Button variant="outline" size="sm" disabled>
-            <RefreshCw className="h-4 w-4" />
-          </Button>
-        )}
+      <div className="space-y-2">
+        <div className="flex items-center gap-2">
+          <Select disabled>
+            <SelectTrigger>
+              <SelectValue placeholder="Loading channels..." />
+            </SelectTrigger>
+          </Select>
+          {showRefreshButton && (
+            <Button variant="outline" size="sm" disabled>
+              <RefreshCw className="h-4 w-4" />
+            </Button>
+          )}
+        </div>
       </div>
     );
   }
 
+  // Handle error state
   if (error) {
     return (
       <div className="space-y-2">
@@ -233,6 +241,10 @@ export const ChannelSelector: React.FC<ChannelSelectorProps> = ({
     );
   }
 
+  const trimmedSearch = searchValue.trim();
+  const noLocalMatches =
+    trimmedSearch.length > 0 && filteredChannels.length === 0;
+
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-2">
@@ -246,96 +258,71 @@ export const ChannelSelector: React.FC<ChannelSelectorProps> = ({
               disabled={disabled}
             >
               {selectedChannel ? (
-                <div className="flex w-full items-center gap-2">
-                  <ChannelIcon isPrivate={selectedChannel.isPrivate} />
-                  <span className="flex-1 truncate">
-                    {selectedChannel.name}
-                  </span>
-                </div>
+                renderChannelItem(selectedChannel)
               ) : (
                 <span className="text-muted-foreground">{placeholder}</span>
               )}
               <Search className="ml-2 h-4 w-4 shrink-0 opacity-50" />
             </Button>
           </PopoverTrigger>
-          <PopoverContent
-            className="w-[var(--radix-popover-trigger-width)] p-0"
-            align="start"
-          >
-            {/* Search input */}
-            <div className="relative flex items-center border-b p-1">
-              <Search className="absolute top-1/2 left-2 h-3.5 w-3.5 shrink-0 -translate-y-1/2 opacity-50" />
-              <input
-                className="placeholder:text-muted-foreground flex h-8 w-full rounded-md bg-transparent py-3 pr-6 pl-6 text-sm outline-none focus:ring-0 disabled:cursor-not-allowed disabled:opacity-50"
+          <PopoverContent className="w-full p-0" align="start">
+            <Command shouldFilter={false}>
+              <CommandInput
                 placeholder="Search channels..."
                 value={searchValue}
-                onChange={(e) => setSearchValue(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && noLocalMatches) {
-                    e.preventDefault();
-                    handleSelectByName();
-                  }
-                }}
+                onValueChange={setSearchValue}
               />
-            </div>
-
-            {/* Virtualized channel list */}
-            {filteredChannels.length > 0 && (
-              <div
-                style={{
-                  height:
-                    Math.min(filteredChannels.length, MAX_VISIBLE_ITEMS) *
-                    ESTIMATED_ITEM_HEIGHT,
-                }}
-              >
-                <VirtualizedList
-                  items={filteredChannels}
-                  selectedItemId={selectedChannelId ?? null}
-                  onSelectItem={handleChannelSelect}
-                  getItemId={(ch) => ch.id}
-                  estimatedItemSize={ESTIMATED_ITEM_HEIGHT}
-                  overscan={20}
-                  renderItem={({ item, isSelected, onSelect }) => (
-                    <div
-                      className={cn(
-                        "flex h-8 cursor-pointer items-center rounded-sm px-2 text-sm select-none",
-                        isSelected
-                          ? "bg-accent text-accent-foreground"
-                          : "hover:bg-accent hover:text-accent-foreground",
-                      )}
-                      onClick={onSelect}
-                    >
-                      <div className="flex w-full items-center gap-2">
-                        <ChannelIcon isPrivate={item.isPrivate} />
-                        <span className="flex-1 truncate">{item.name}</span>
-                      </div>
-                    </div>
-                  )}
-                />
-              </div>
-            )}
-
-            {/* Empty state when no channels and no search */}
-            {!noLocalMatches && filteredChannels.length === 0 && (
-              <div className="text-muted-foreground px-3 py-4 text-center text-sm">
-                No channels available. Invite the bot to a channel first.
-              </div>
-            )}
-
-            {/* No local matches — offer to use the typed name directly */}
-            {noLocalMatches && (
-              <div className="p-1">
-                <div
-                  className="hover:bg-accent hover:text-accent-foreground flex h-8 cursor-pointer items-center gap-2 rounded-sm px-2 text-sm select-none"
-                  onClick={handleSelectByName}
+              <CommandList ref={setScrollNode}>
+                <CommandEmpty>
+                  {noLocalMatches
+                    ? "No channels match your search."
+                    : "No channels available."}
+                </CommandEmpty>
+                <CommandGroup
+                  style={{
+                    height: virtualizer.getTotalSize(),
+                    position: "relative",
+                  }}
                 >
-                  <Hash className="text-muted-foreground h-4 w-4 shrink-0" />
-                  <span className="flex-1 truncate">
-                    Use &quot;{trimmedSearch.replace(/^#/, "")}&quot;
-                  </span>
-                </div>
-              </div>
-            )}
+                  {virtualizer.getVirtualItems().map((virtualRow) => {
+                    const channel = filteredChannels[virtualRow.index];
+                    return (
+                      <CommandItem
+                        key={channel.id}
+                        value={channel.id}
+                        onSelect={() => selectAndClose(channel)}
+                        className="cursor-pointer"
+                        style={{
+                          position: "absolute",
+                          top: virtualRow.start,
+                          left: 0,
+                          width: "100%",
+                          height: ITEM_HEIGHT,
+                        }}
+                      >
+                        {renderChannelItem(channel)}
+                      </CommandItem>
+                    );
+                  })}
+                </CommandGroup>
+
+                {/* When search has no matches, offer to use the typed name */}
+                {noLocalMatches && (
+                  <CommandGroup>
+                    <CommandItem
+                      value={`use-${trimmedSearch}`}
+                      onSelect={handleSelectByName}
+                      className="cursor-pointer"
+                    >
+                      <Hash className="text-muted-foreground h-4 w-4" />
+                      <span className="flex-1 truncate">
+                        Use &quot;{trimmedSearch.replace(/^#/, "")}&quot;
+                      </span>
+                    </CommandItem>
+                  </CommandGroup>
+                )}
+              </CommandList>
+            </Command>
           </PopoverContent>
         </Popover>
 

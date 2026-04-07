@@ -292,26 +292,6 @@ export const slackRouter = createTRPCRouter({
           text: "Test message from Langfuse",
         });
 
-        await auditLog({
-          session: ctx.session,
-          resourceType: "slackIntegration",
-          resourceId: integration.id,
-          action: "create",
-          after: {
-            action: "test_message_sent",
-            channelId: input.channelId,
-            channelName: input.channelName,
-            messageTs: result.messageTs,
-          },
-        });
-
-        logger.info("Test message sent successfully", {
-          projectId: input.projectId,
-          channelId: input.channelId,
-          channelName: input.channelName,
-          messageTs: result.messageTs,
-        });
-
         // For manually-typed channel names (id starts with #), resolve
         // channel metadata via conversations.info so the UI can show
         // accurate type/ID info. Skip for channels already selected from
@@ -335,6 +315,26 @@ export const slackRouter = createTRPCRouter({
             };
           }
         }
+
+        await auditLog({
+          session: ctx.session,
+          resourceType: "slackIntegration",
+          resourceId: integration.id,
+          action: "create",
+          after: {
+            action: "test_message_sent",
+            channelId: result.channel,
+            channelName: input.channelName,
+            messageTs: result.messageTs,
+          },
+        });
+
+        logger.info("Test message sent successfully", {
+          projectId: input.projectId,
+          channelId: result.channel,
+          channelName: input.channelName,
+          messageTs: result.messageTs,
+        });
 
         return {
           success: true,

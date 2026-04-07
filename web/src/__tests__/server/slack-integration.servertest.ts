@@ -79,6 +79,7 @@ describe("Slack Integration", () => {
       getWebClientForProject: jest.fn(),
       sendMessage: jest.fn(),
       getChannels: jest.fn(),
+      getChannelInfo: jest.fn(),
       validateClient: jest.fn(),
       deleteIntegration: jest.fn(),
     };
@@ -308,6 +309,71 @@ describe("Slack Integration", () => {
 
         // 🔒 CRITICAL: Ensure no bot token is exposed in test results
         expect(JSON.stringify(result)).not.toContain("xoxb-test-token");
+      });
+
+      it("should resolve channel info for manually-typed channel names", async () => {
+        const mockClient = { auth: { test: jest.fn() } };
+        mockSlackService.getWebClientForProject.mockResolvedValue(mockClient);
+        mockSlackService.sendMessage.mockResolvedValue({
+          messageTs: "1234567890.123456",
+          channel: "C999888",
+        });
+        mockSlackService.getChannelInfo.mockResolvedValue({
+          id: "C999888",
+          name: "general",
+          isPrivate: false,
+        });
+
+        const { caller, project } = await prepare();
+
+        await prisma.slackIntegration.create({
+          data: {
+            projectId: project.id,
+            teamId: "T123456",
+            teamName: "Test Team",
+            botToken: encrypt("xoxb-test-token"),
+            botUserId: "U123456",
+          },
+        });
+
+        const result = await caller.slack.sendTestMessage({
+          projectId: project.id,
+          channelId: "#general",
+          channelName: "general",
+        });
+
+        expect(result).toMatchObject({
+          success: true,
+          channel: "C999888",
+          channelInfo: {
+            id: "C999888",
+            name: "general",
+            isPrivate: false,
+          },
+        });
+
+        expect(mockSlackService.getChannelInfo).toHaveBeenCalledWith(
+          mockClient,
+          "C999888",
+        );
+
+        // Verify audit log records the resolved channel ID, not the #-prefixed input
+        const auditLogEntry = await prisma.auditLog.findFirst({
+          where: {
+            projectId: project.id,
+            resourceType: "slackIntegration",
+            action: "create",
+          },
+          orderBy: { createdAt: "desc" },
+        });
+
+        expect(auditLogEntry).toBeDefined();
+        const afterData = auditLogEntry?.after
+          ? JSON.parse(auditLogEntry.after)
+          : null;
+        expect(afterData).toMatchObject({
+          channelId: "C999888",
+        });
       });
 
       it("should create audit log entry", async () => {

@@ -40,8 +40,8 @@ export const SLACK_BOT_SCOPES = [
 export interface SlackChannel {
   id: string;
   name: string;
-  isPrivate: boolean;
-  isMember: boolean;
+  isPrivate?: boolean;
+  isMember?: boolean;
 }
 
 export interface GetChannelsResult {
@@ -123,7 +123,7 @@ export class SlackService {
       clientSecret: env.SLACK_CLIENT_SECRET!,
       stateSecret: env.SLACK_STATE_SECRET!,
       installUrlOptions: {
-        scopes: [...SLACK_BOT_SCOPES],
+        scopes: SLACK_BOT_SCOPES as unknown as string[],
       },
       installationStore: {
         storeInstallation: async (installation) => {
@@ -396,7 +396,7 @@ export class SlackService {
             nextCursor,
             fetchedRecords + channels.length,
           );
-          return [...channels, ...nextPageChannels];
+          return channels.concat(nextPageChannels);
         } catch (error) {
           logger.error(
             `Failed to retrieve next page of channels, returning only already fetched`,
