@@ -15,6 +15,15 @@ describe("signupSchema name validation", () => {
     expect(result.success).toBe(true);
   });
 
+  it("rejects names longer than 100 characters", () => {
+    const result = signupSchema.safeParse({
+      ...validBaseInput,
+      name: "a".repeat(101),
+    });
+
+    expect(result.success).toBe(false);
+  });
+
   it("rejects names with punctuation", () => {
     const result = signupSchema.safeParse({
       ...validBaseInput,

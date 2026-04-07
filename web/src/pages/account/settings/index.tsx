@@ -35,7 +35,7 @@ import { showErrorToast } from "@/src/features/notifications/showErrorToast";
 import { env } from "@/src/env.mjs";
 
 const displayNameSchema = z.object({
-  name: nameSchema.max(100, "Name must be at most 100 characters"),
+  name: nameSchema,
 });
 
 function UpdateDisplayName() {
