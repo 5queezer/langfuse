@@ -103,4 +103,36 @@ describe("signupSchema name validation", () => {
 
     expect(result.success).toBe(false);
   });
+
+  it("rejects names with a leading combining mark", () => {
+    const result = signupSchema.safeParse({
+      ...validBaseInput,
+      name: "\u0301André",
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects names consisting only of combining marks", () => {
+    const result = signupSchema.safeParse({
+      ...validBaseInput,
+      name: "\u0301\u0302\u0303",
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it("accepts NFD-decomposed names after NFC normalization", () => {
+    // "é" decomposed as e + combining acute accent
+    const result = signupSchema.safeParse({
+      ...validBaseInput,
+      name: "Andre\u0301",
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      // NFC normalization should merge the combining mark
+      expect(result.data.name).toBe("André");
+    }
+  });
 });

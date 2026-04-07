@@ -21,12 +21,14 @@ export const nameSchema = StringNoHTMLNonEmpty.max(
   100,
   "Name must be at most 100 characters",
 )
+  // NFC-normalize so combining marks merge into precomposed characters
+  .transform((value) => value.normalize("NFC"))
   // Normalize smart/curly quotes (e.g. from iOS/macOS autocorrect) to straight apostrophe
   .transform((value) => value.replace(/[\u2018\u2019\u02BC]/g, "'"))
   .refine((value) => noUrlCheck(value), {
     message: "Input should not contain a URL",
   })
-  .refine((value) => /^[\p{L}\p{M}\p{N}\s.'\-]+$/u.test(value), {
+  .refine((value) => /^(?!\p{M})[\p{L}\p{M}\p{N}\s.'\-]+$/u.test(value), {
     message:
       "Name can only contain letters, numbers, spaces, hyphens, apostrophes, and periods",
   })
