@@ -109,6 +109,45 @@ type FetchLLMCompletionParams = LLMCompletionParams & {
   tools?: LLMToolDefinition[];
 };
 
+const RUNTIME_TIMEOUT_ADAPTERS = new Set([
+  LLMAdapter.VertexAI,
+  LLMAdapter.GoogleAIStudio,
+]);
+
+async function executeWithRuntimeTimeout<T>({
+  enabled,
+  timeoutMs,
+  abortController,
+  operation,
+}: {
+  enabled: boolean;
+  timeoutMs: number;
+  abortController?: AbortController;
+  operation: () => Promise<T>;
+}): Promise<T> {
+  if (!enabled) {
+    return operation();
+  }
+
+  const timeoutError = new Error(`Request timed out after ${timeoutMs}ms`);
+
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+
+  try {
+    return await Promise.race([
+      operation(),
+      new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(() => {
+          abortController?.abort(timeoutError);
+          reject(timeoutError);
+        }, timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+}
+
 export async function fetchLLMCompletion(
   params: LLMCompletionParams & {
     streaming: true;
@@ -453,6 +492,19 @@ export async function fetchLLMCompletion(
     metadata: traceSinkParams?.metadata,
   };
 
+  const runtimeTimeoutEnabled = RUNTIME_TIMEOUT_ADAPTERS.has(
+    modelParams.adapter,
+  );
+  const runtimeTimeoutController = runtimeTimeoutEnabled
+    ? new AbortController()
+    : undefined;
+  const runConfigWithTimeout = runtimeTimeoutController
+    ? {
+        ...runConfig,
+        signal: runtimeTimeoutController.signal,
+      }
+    : runConfig;
+
   const thinkingTypes = getThinkingBlockTypes(modelParams.adapter);
 
   try {
@@ -460,17 +512,24 @@ export async function fetchLLMCompletion(
     if (params.structuredOutputSchema) {
       // Thinking-capable adapters may produce reasoning blocks that corrupt JSON schema
       // parsing. Force function calling so the parser reads from tool_calls instead.
+      const structuredOutputSchema = params.structuredOutputSchema;
       const structuredOutputConfig =
         thinkingTypes != null
           ? { method: "functionCalling" as const }
           : undefined;
 
-      const structuredOutput = await (chatModel as ChatOpenAI)
-        .withStructuredOutput(
-          params.structuredOutputSchema,
-          structuredOutputConfig,
-        )
-        .invoke(finalMessages, runConfig);
+      const structuredOutput = await executeWithRuntimeTimeout({
+        enabled: runtimeTimeoutEnabled,
+        timeoutMs,
+        abortController: runtimeTimeoutController,
+        operation: () =>
+          (chatModel as ChatOpenAI)
+            .withStructuredOutput(
+              structuredOutputSchema,
+              structuredOutputConfig,
+            )
+            .invoke(finalMessages, runConfigWithTimeout),
+      });
 
       return structuredOutput;
     }
@@ -481,9 +540,15 @@ export async function fetchLLMCompletion(
         function: tool,
       }));
 
-      const result = await chatModel
-        .bindTools(langchainTools)
-        .invoke(finalMessages, runConfig);
+      const result = await executeWithRuntimeTimeout({
+        enabled: runtimeTimeoutEnabled,
+        timeoutMs,
+        abortController: runtimeTimeoutController,
+        operation: () =>
+          chatModel
+            .bindTools(langchainTools)
+            .invoke(finalMessages, runConfigWithTimeout),
+      });
 
       // For thinking adapters, strip reasoning blocks from content before parsing
       // so ToolCallResponseSchema can validate. Extract reasoning separately.
@@ -512,20 +577,37 @@ export async function fetchLLMCompletion(
     }
 
     if (streaming)
-      return chatModel
-        .pipe(new BytesOutputParser())
-        .stream(finalMessages, runConfig);
+      return executeWithRuntimeTimeout({
+        enabled: runtimeTimeoutEnabled,
+        timeoutMs,
+        abortController: runtimeTimeoutController,
+        operation: () =>
+          chatModel
+            .pipe(new BytesOutputParser())
+            .stream(finalMessages, runConfigWithTimeout),
+      });
 
     // content with thinking blocks can't be handled by StringOutputParser
     // Invoke model directly and extract text + reasoning separately.
     if (thinkingTypes != null) {
-      const aiMessage = await chatModel.invoke(finalMessages, runConfig);
+      const aiMessage = await executeWithRuntimeTimeout({
+        enabled: runtimeTimeoutEnabled,
+        timeoutMs,
+        abortController: runtimeTimeoutController,
+        operation: () => chatModel.invoke(finalMessages, runConfigWithTimeout),
+      });
       return extractCompletionWithReasoning(aiMessage, thinkingTypes);
     }
 
-    const completion = await chatModel
-      .pipe(new StringOutputParser())
-      .invoke(finalMessages, runConfig);
+    const completion = await executeWithRuntimeTimeout({
+      enabled: runtimeTimeoutEnabled,
+      timeoutMs,
+      abortController: runtimeTimeoutController,
+      operation: () =>
+        chatModel
+          .pipe(new StringOutputParser())
+          .invoke(finalMessages, runConfigWithTimeout),
+    });
 
     return completion;
   } catch (e) {
@@ -537,6 +619,7 @@ export async function fetchLLMCompletion(
     // Check for non-retryable error patterns in message
     const nonRetryablePatterns = [
       "Request timed out",
+      "Request timeout after",
       "is not valid JSON",
       "Unterminated string in JSON at position",
       "TypeError",
