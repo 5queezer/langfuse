@@ -136,17 +136,28 @@ export async function retryLLMRateLimitError(
       `Job ${jobId} is rate limited. Retrying in ${delay}ms. Attempt: ${retryBaggage?.attempt}. Total delay: ${retryBaggage ? new Date().getTime() - new Date(retryBaggage?.originalJobTimestamp).getTime() : "unavailable"}ms.`,
     );
 
-    await config.queue.add(
-      config.queueName,
-      {
-        name: config.jobName,
-        id: randomUUID(),
-        timestamp: new Date(),
-        payload: job.data.payload,
-        retryBaggage: retryBaggage,
-      },
-      { delay },
-    );
+    try {
+      await config.queue.add(
+        config.queueName,
+        {
+          name: config.jobName,
+          id: randomUUID(),
+          timestamp: new Date(),
+          payload: job.data.payload,
+          retryBaggage: retryBaggage,
+        },
+        { delay },
+      );
+    } catch (addErr) {
+      logger.warn(
+        `Failed to enqueue retry job for ${jobId}. Falling back to normal error handling.`,
+        addErr,
+      );
+
+      return {
+        outcome: "queue_unavailable",
+      };
+    }
 
     return {
       outcome: "scheduled",

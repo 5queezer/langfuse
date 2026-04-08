@@ -1,8 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const invokeMock = vi.fn();
+const streamMock = vi.fn();
 const chatVertexAIConstructorMock = vi.fn().mockImplementation(() => ({
   invoke: invokeMock,
+  pipe: vi.fn().mockReturnValue({
+    stream: streamMock,
+  }),
 }));
 const VERTEXAI_USE_DEFAULT_CREDENTIALS = "__VERTEXAI_DEFAULT_CREDENTIALS__";
 
@@ -54,6 +58,7 @@ describe("fetchLLMCompletion runtime timeouts", () => {
   beforeEach(async () => {
     vi.useFakeTimers();
     invokeMock.mockReset();
+    streamMock.mockReset();
     chatVertexAIConstructorMock.mockClear();
     vi.resetModules();
 
@@ -70,7 +75,7 @@ describe("fetchLLMCompletion runtime timeouts", () => {
     vi.useRealTimers();
   });
 
-  it("times out VertexAI requests instead of hanging indefinitely", async () => {
+  it("wraps non-streaming VertexAI timeouts as non-retryable LLMCompletionError", async () => {
     env.LANGFUSE_FETCH_LLM_COMPLETION_TIMEOUT_MS = 25;
 
     invokeMock.mockImplementation(() => new Promise(() => {}));
@@ -97,8 +102,51 @@ describe("fetchLLMCompletion runtime timeouts", () => {
       },
     });
 
-    const completionRejection = expect(completionPromise).rejects.toThrow(
-      "Request timed out after 25ms",
+    const completionRejection = expect(completionPromise).rejects.toMatchObject(
+      {
+        name: "LLMCompletionError",
+        message: "Request timed out after 25ms",
+        isRetryable: false,
+      },
+    );
+
+    await vi.runOnlyPendingTimersAsync();
+    await completionRejection;
+  });
+
+  it("wraps streaming VertexAI timeouts as non-retryable LLMCompletionError", async () => {
+    env.LANGFUSE_FETCH_LLM_COMPLETION_TIMEOUT_MS = 25;
+
+    streamMock.mockImplementation(() => new Promise(() => {}));
+
+    const completionPromise = fetchLLMCompletion({
+      streaming: true,
+      messages: [
+        {
+          role: "user",
+          content: "Stream the answer.",
+          type: "public-api-created",
+        },
+      ],
+      modelParams: {
+        provider: "google-vertex-ai",
+        adapter: "google-vertex-ai",
+        model: "gemini-2.0-flash",
+        temperature: 0,
+        max_tokens: 10,
+      },
+      llmConnection: {
+        secretKey: encrypt(VERTEXAI_USE_DEFAULT_CREDENTIALS),
+        config: null,
+      },
+    });
+
+    const completionRejection = expect(completionPromise).rejects.toMatchObject(
+      {
+        name: "LLMCompletionError",
+        message: "Request timed out after 25ms",
+        isRetryable: false,
+      },
     );
 
     await vi.runOnlyPendingTimersAsync();

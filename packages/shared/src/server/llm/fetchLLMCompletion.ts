@@ -546,7 +546,7 @@ export async function fetchLLMCompletion(
     }
 
     if (streaming)
-      return executeWithRuntimeTimeout({
+      return await executeWithRuntimeTimeout({
         enabled: runtimeTimeoutEnabled,
         timeoutMs,
         abortController: runtimeTimeoutController,
