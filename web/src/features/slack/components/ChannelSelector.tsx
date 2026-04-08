@@ -206,6 +206,12 @@ export const ChannelSelector: React.FC<ChannelSelectorProps> = ({
     });
   }, [searchValue, selectAndClose]);
 
+  useEffect(() => {
+    if (scrollNode) {
+      scrollNode.scrollTop = 0;
+    }
+  }, [searchValue, scrollNode]);
+
   // Render channel item
   const renderChannelItem = (channel: SlackChannel) => (
     <div className="flex w-full items-center gap-2">
@@ -296,12 +302,8 @@ export const ChannelSelector: React.FC<ChannelSelectorProps> = ({
                 onValueChange={setSearchValue}
               />
               <CommandList ref={setScrollNode}>
-                {filteredChannels.length === 0 && (
-                  <CommandEmpty>
-                    {noLocalMatches
-                      ? "No channels match your search."
-                      : "No channels available."}
-                  </CommandEmpty>
+                {!noLocalMatches && filteredChannels.length === 0 && (
+                  <CommandEmpty>No channels available.</CommandEmpty>
                 )}
                 <CommandGroup
                   style={{
@@ -331,7 +333,7 @@ export const ChannelSelector: React.FC<ChannelSelectorProps> = ({
                   })}
                 </CommandGroup>
 
-                {/* When search has no matches, offer to use the typed name */}
+                {/* When search has no matches and the user hasn't typed anything yet, offer to use the typed name */}
                 {noLocalMatches && (
                   <CommandGroup>
                     <CommandItem
