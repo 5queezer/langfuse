@@ -56,6 +56,7 @@ export interface TraceExportObservation {
   promptId: string | null;
   promptName: string | null;
   promptVersion: number | null;
+  providedUsageDetails: Record<string, number>;
   latency: number | null;
   timeToFirstToken: number | null;
   usageDetails: Record<string, number>;
@@ -427,6 +428,7 @@ export async function buildTraceExport({
       promptId: record.prompt_id ?? null,
       promptName: record.prompt_name ?? null,
       promptVersion: record.prompt_version ?? null,
+      providedUsageDetails: record.provided_usage_details ?? {},
       latency: getDurationSeconds(startTime, endTime),
       timeToFirstToken: getDurationSeconds(startTime, completionStartTime),
       usageDetails: record.usage_details ?? {},
