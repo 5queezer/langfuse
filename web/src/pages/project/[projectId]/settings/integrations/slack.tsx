@@ -179,16 +179,17 @@ export default function SlackIntegrationSettings() {
                       hasAccess={hasAccess}
                       disabled={false}
                       onSuccess={(channelInfo) => {
-                        if (selectedChannel) {
-                          setSelectedChannel({
-                            ...selectedChannel,
-                            id: channelInfo.id,
-                            name: channelInfo.name ?? selectedChannel.name,
-                            isPrivate:
-                              channelInfo.isPrivate ??
-                              selectedChannel.isPrivate,
-                          });
-                        }
+                        setSelectedChannel((prev) =>
+                          prev
+                            ? {
+                                ...prev,
+                                id: channelInfo.id,
+                                name: channelInfo.name ?? prev.name,
+                                isPrivate:
+                                  channelInfo.isPrivate ?? prev.isPrivate,
+                              }
+                            : prev,
+                        );
                       }}
                     />
                   </div>

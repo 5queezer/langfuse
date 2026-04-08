@@ -256,7 +256,7 @@ export const slackRouter = createTRPCRouter({
               },
               {
                 type: "mrkdwn",
-                text: `*Channel:*\n#${input.channelName ?? input.channelId}`,
+                text: `*Channel:*\n#${input.channelName ?? input.channelId.replace(/^#/, "")}`,
               },
               {
                 type: "mrkdwn",
