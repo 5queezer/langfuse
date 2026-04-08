@@ -37,6 +37,9 @@ export type RetryScheduleResult =
   | {
       outcome: "skipped";
       reason: "too_old";
+    }
+  | {
+      outcome: "queue_unavailable";
     };
 
 /**
@@ -99,6 +102,16 @@ export async function retryLLMRateLimitError(
           attempt: 1,
         };
 
+    if (!config.queue) {
+      logger.warn(
+        `Retry queue ${config.queueName} is not available for job ${jobId}. Falling back to normal error handling.`,
+      );
+
+      return {
+        outcome: "queue_unavailable",
+      };
+    }
+
     // Record retry attempt distribution per queue
     recordDistribution(
       `${convertQueueNameToMetricName(config.queueName)}.retries`,
@@ -119,15 +132,11 @@ export async function retryLLMRateLimitError(
       },
     );
 
-    if (!config.queue) {
-      throw new Error(`Retry queue ${config.queueName} is not available`);
-    }
-
     logger.info(
       `Job ${jobId} is rate limited. Retrying in ${delay}ms. Attempt: ${retryBaggage?.attempt}. Total delay: ${retryBaggage ? new Date().getTime() - new Date(retryBaggage?.originalJobTimestamp).getTime() : "unavailable"}ms.`,
     );
 
-    await config.queue?.add(
+    await config.queue.add(
       config.queueName,
       {
         name: config.jobName,

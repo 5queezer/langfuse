@@ -4,6 +4,40 @@ import { decrypt } from "../../encryption";
 
 const ExtraHeaderSchema = z.record(z.string(), z.string());
 
+export async function executeWithRuntimeTimeout<T>({
+  enabled,
+  timeoutMs,
+  abortController,
+  operation,
+}: {
+  enabled: boolean;
+  timeoutMs: number;
+  abortController?: AbortController;
+  operation: () => Promise<T>;
+}): Promise<T> {
+  if (!enabled) {
+    return operation();
+  }
+
+  const timeoutError = new Error(`Request timed out after ${timeoutMs}ms`);
+
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+
+  try {
+    return await Promise.race([
+      operation(),
+      new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(() => {
+          abortController?.abort(timeoutError);
+          reject(timeoutError);
+        }, timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+}
+
 export function decryptAndParseExtraHeaders(
   extraHeaders: string | null | undefined,
 ) {

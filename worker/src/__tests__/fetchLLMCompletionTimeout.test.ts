@@ -59,9 +59,8 @@ describe("fetchLLMCompletion runtime timeouts", () => {
 
     ({ env } = await import("../../../packages/shared/src/env"));
     ({ encrypt } = await import("../../../packages/shared/src/encryption"));
-    ({ fetchLLMCompletion } = await import(
-      "../../../packages/shared/src/server/llm/fetchLLMCompletion"
-    ));
+    ({ fetchLLMCompletion } =
+      await import("../../../packages/shared/src/server/llm/fetchLLMCompletion"));
 
     originalTimeout = env.LANGFUSE_FETCH_LLM_COMPLETION_TIMEOUT_MS;
   });

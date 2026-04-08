@@ -33,8 +33,6 @@ export const experimentCreateQueueProcessor = async (
       });
 
       if (retryResult.outcome === "scheduled") return;
-
-      return;
     }
 
     if (isLLMCompletionError(e) || isUnrecoverableError(e)) return;

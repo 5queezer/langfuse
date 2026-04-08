@@ -43,7 +43,10 @@ import type { BaseCallbackHandler } from "@langchain/core/callbacks/base";
 import { ProxyAgent } from "undici";
 import { getInternalTracingHandler } from "./getInternalTracingHandler";
 import { decrypt } from "../../encryption";
-import { decryptAndParseExtraHeaders } from "./utils";
+import {
+  decryptAndParseExtraHeaders,
+  executeWithRuntimeTimeout,
+} from "./utils";
 import { logger } from "../logger";
 import { LLMCompletionError } from "./errors";
 
@@ -113,40 +116,6 @@ const RUNTIME_TIMEOUT_ADAPTERS = new Set([
   LLMAdapter.VertexAI,
   LLMAdapter.GoogleAIStudio,
 ]);
-
-async function executeWithRuntimeTimeout<T>({
-  enabled,
-  timeoutMs,
-  abortController,
-  operation,
-}: {
-  enabled: boolean;
-  timeoutMs: number;
-  abortController?: AbortController;
-  operation: () => Promise<T>;
-}): Promise<T> {
-  if (!enabled) {
-    return operation();
-  }
-
-  const timeoutError = new Error(`Request timed out after ${timeoutMs}ms`);
-
-  let timeoutId: ReturnType<typeof setTimeout> | undefined;
-
-  try {
-    return await Promise.race([
-      operation(),
-      new Promise<never>((_, reject) => {
-        timeoutId = setTimeout(() => {
-          abortController?.abort(timeoutError);
-          reject(timeoutError);
-        }, timeoutMs);
-      }),
-    ]);
-  } finally {
-    if (timeoutId) clearTimeout(timeoutId);
-  }
-}
 
 export async function fetchLLMCompletion(
   params: LLMCompletionParams & {
@@ -619,7 +588,6 @@ export async function fetchLLMCompletion(
     // Check for non-retryable error patterns in message
     const nonRetryablePatterns = [
       "Request timed out",
-      "Request timeout after",
       "is not valid JSON",
       "Unterminated string in JSON at position",
       "TypeError",

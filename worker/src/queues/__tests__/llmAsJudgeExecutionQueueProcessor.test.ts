@@ -56,8 +56,7 @@ vi.mock("@langfuse/shared/src/server", () => {
   return {
     QueueName: {
       LLMAsJudgeExecution: "llm-as-a-judge-execution-queue",
-      EvaluationExecutionSecondaryQueue:
-        "evaluation-execution-secondary-queue",
+      EvaluationExecutionSecondaryQueue: "evaluation-execution-secondary-queue",
     },
     QueueJobs: {
       LLMAsJudgeExecution: "llm-as-a-judge-execution-job",
@@ -127,9 +126,7 @@ describe("llmAsJudgeExecutionQueueProcessor", () => {
     }>,
   ) => Promise<unknown>;
 
-  const createMockJob = (
-    overrides: Record<string, unknown> = {},
-  ): Job<any> => {
+  const createMockJob = (overrides: Record<string, unknown> = {}): Job<any> => {
     return {
       data: {
         id: "queue-job-123",
@@ -147,9 +144,8 @@ describe("llmAsJudgeExecutionQueueProcessor", () => {
   };
 
   beforeAll(async () => {
-    const { llmAsJudgeExecutionQueueProcessorBuilder } = await import(
-      "../evalQueue"
-    );
+    const { llmAsJudgeExecutionQueueProcessorBuilder } =
+      await import("../evalQueue");
     llmAsJudgeExecutionQueueProcessor =
       llmAsJudgeExecutionQueueProcessorBuilder(queueName);
   });
@@ -263,6 +259,33 @@ describe("llmAsJudgeExecutionQueueProcessor", () => {
       (retryLLMRateLimitError as Mock).mockResolvedValue({
         outcome: "skipped",
         reason: "too_old",
+      });
+
+      const job = createMockJob();
+      await llmAsJudgeExecutionQueueProcessor(job);
+
+      expect(prisma.jobExecution.update).toHaveBeenCalledWith({
+        where: {
+          id: jobExecutionId,
+          projectId,
+        },
+        data: expect.objectContaining({
+          status: JobExecutionStatus.ERROR,
+          endTime: expect.any(Date),
+          error: "Rate limit exceeded",
+          executionTraceId: "test-trace-id",
+        }),
+      });
+    });
+
+    it("should set ERROR when the retry queue is unavailable", async () => {
+      const rateLimitError = new Error("Rate limit exceeded");
+      (processObservationEval as Mock).mockRejectedValue(rateLimitError);
+      (isLLMCompletionError as Mock).mockReturnValue(true);
+      (rateLimitError as unknown as { isRetryable: boolean }).isRetryable =
+        true;
+      (retryLLMRateLimitError as Mock).mockResolvedValue({
+        outcome: "queue_unavailable",
       });
 
       const job = createMockJob();
