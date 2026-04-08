@@ -31,7 +31,7 @@ export class SlackApiError extends Error {
 /** OAuth scopes requested when installing the Slack app. */
 export const SLACK_BOT_SCOPES = [
   "channels:read", // read public channels
-  "groups:read", // read private channels
+  "groups:read", // read private channels that the bot is a member of
   "chat:write", // send messages to channels the bot is a member of
   "chat:write.public", // send messages to public channels that the bot is not a member of
 ] as const;
@@ -307,7 +307,9 @@ export class SlackService {
         throw new Error("No bot token found for project");
       }
 
-      const client = new WebClient(auth.botToken);
+      const client = new WebClient(auth.botToken, {
+        retryConfig: { retries: 3, maxRetryTime: 90_000 },
+      });
       logger.debug("Created WebClient for project", { projectId });
 
       return client;
@@ -323,35 +325,6 @@ export class SlackService {
   }
 
   /**
-   * Execute a Slack API call with automatic retry on rate-limit (429) errors.
-   * Reads the `retryAfter` value from the SDK error and sleeps accordingly.
-   */
-  private async withRateLimitRetry<T>(
-    fn: () => Promise<T>,
-    maxRetries: number = 3,
-  ): Promise<T> {
-    for (let attempt = 0; ; attempt++) {
-      try {
-        return await fn();
-      } catch (error: any) {
-        const isRateLimited =
-          error?.code === "slack_webapi_rate_limited_error" ||
-          error?.data?.error === "ratelimited";
-
-        if (isRateLimited && attempt < maxRetries) {
-          const retryAfter = Math.min((error.retryAfter ?? 30) as number, 60);
-          logger.warn(
-            `Slack rate limited, retrying in ${retryAfter}s (attempt ${attempt + 1}/${maxRetries})`,
-          );
-          await new Promise((r) => setTimeout(r, retryAfter * 1000));
-          continue;
-        }
-        throw error;
-      }
-    }
-  }
-
-  /**
    * Recursively fetch all channels accessible to the bot
    * Uses cursor-based pagination defined by Slack API https://api.slack.com/apis/pagination
    */
@@ -362,14 +335,12 @@ export class SlackService {
     fetchedRecords: number = 0,
   ): Promise<SlackChannel[]> {
     try {
-      const result = await this.withRateLimitRetry(() =>
-        client.conversations.list({
-          exclude_archived: true,
-          types: channelTypes,
-          limit: env.SLACK_PAGE_SIZE,
-          cursor: cursor,
-        }),
-      );
+      const result = await client.conversations.list({
+        exclude_archived: true,
+        types: channelTypes,
+        limit: env.SLACK_PAGE_SIZE,
+        cursor: cursor,
+      });
 
       if (!result.ok) {
         throw new Error(`Slack API error: ${result.error}`);
@@ -470,9 +441,7 @@ export class SlackService {
     channelId: string,
   ): Promise<SlackChannel | null> {
     try {
-      const result = await this.withRateLimitRetry(() =>
-        client.conversations.info({ channel: channelId }),
-      );
+      const result = await client.conversations.info({ channel: channelId });
       if (!result.ok || !result.channel) return null;
       return {
         id: result.channel.id!,
@@ -490,15 +459,13 @@ export class SlackService {
    */
   async sendMessage(params: SlackMessageParams): Promise<SlackMessageResponse> {
     try {
-      const result = await this.withRateLimitRetry(() =>
-        params.client.chat.postMessage({
-          channel: params.channelId,
-          blocks: params.blocks,
-          text: params.text || "Langfuse Notification",
-          unfurl_links: false,
-          unfurl_media: false,
-        }),
-      );
+      const result = await params.client.chat.postMessage({
+        channel: params.channelId,
+        blocks: params.blocks,
+        text: params.text || "Langfuse Notification",
+        unfurl_links: false,
+        unfurl_media: false,
+      });
 
       if (!result.ok) {
         throw new Error(`Failed to send message: ${result.error}`);
