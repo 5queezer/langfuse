@@ -86,7 +86,7 @@ export const TraceLogView = ({
     observations.length >= LOG_VIEW_VIRTUALIZATION_THRESHOLD;
 
   // Determine if download/copy should use cached I/O only (vs loading all)
-  const isDownloadCacheOnly =
+  const isCopyOrDownloadCacheOnly =
     observations.length >= LOG_VIEW_DOWNLOAD_THRESHOLD;
 
   // Get expanded keys from context (persisted in sessionStorage)
@@ -248,39 +248,26 @@ export const TraceLogView = ({
   });
 
   // Download and copy handlers
-  const { handleCopyJson, handleDownloadJson, isDownloadOrCopyLoading } =
-    useLogViewDownload({
-      traceId,
-      isDownloadCacheOnly,
-      allObservationsData: allObservationsIO.data,
-      isLoadingAllData: allObservationsIO.isLoading,
-      failedObservationIds: allObservationsIO.failedObservationIds,
-      loadAllData: allObservationsIO.loadAllData,
-      buildDataFromCache: allObservationsIO.buildDataFromCache,
-    });
-
-  const toolbarDownloadProps = useMemo(() => {
-    if (isBetaEnabled) {
-      // Hide download button entirely in v4.
-      // There is already a download button in the `TracePanelNavigationHeader`.
-      return {
-        onDownloadJson: undefined,
-        isDownloadCacheOnly: undefined,
-        isDownloadLoading: undefined,
-      };
-    }
-
-    return {
-      onDownloadJson: handleDownloadJson,
-      isDownloadCacheOnly,
-      isDownloadLoading: isDownloadOrCopyLoading,
-    };
-  }, [
-    isBetaEnabled,
+  const {
+    handleCopyJson,
     handleDownloadJson,
-    isDownloadCacheOnly,
-    isDownloadOrCopyLoading,
-  ]);
+    isActionLoading: isCopyOrDownloadLoading,
+  } = useLogViewDownload({
+    traceId,
+    isCacheOnly: isCopyOrDownloadCacheOnly,
+    allObservationsData: allObservationsIO.data,
+    isLoadingAllData: allObservationsIO.isLoading,
+    failedObservationIds: allObservationsIO.failedObservationIds,
+    loadAllData: allObservationsIO.loadAllData,
+    buildDataFromCache: allObservationsIO.buildDataFromCache,
+  });
+
+  const toolbarDownloadProps = useMemo(
+    () => ({
+      onDownloadJson: isBetaEnabled ? undefined : handleDownloadJson,
+    }),
+    [isBetaEnabled, handleDownloadJson],
+  );
 
   // Toggle JSON view collapse
   const handleToggleJsonCollapse = useCallback(() => {
@@ -303,6 +290,8 @@ export const TraceLogView = ({
         onToggleExpandAll={handleToggleExpandAll}
         allRowsExpanded={allRowsExpanded}
         onCopyJson={handleCopyJson}
+        isCopyOrDownloadLoading={isCopyOrDownloadLoading}
+        isCopyOrDownloadCacheOnly={isCopyOrDownloadCacheOnly}
         currentView={currentView}
         indentEnabled={indentEnabled}
         indentDisabled={indentDisabled}
