@@ -104,22 +104,24 @@ function TracePanelNavigationHeaderExpanded({
   }, [isEverythingCollapsed, expandAll, collapseAll, getAllNodeIds, roots]);
 
   const handleBetaDownload = useCallback(async () => {
-    if (observations.length >= TRACE_DOWNLOAD_OMIT_LARGE_FIELDS_THRESHOLD) {
-      toast.warning(
-        `Trace download excludes IO, metadata, toolDefinitions, and toolCalls for traces with ${TRACE_DOWNLOAD_OMIT_LARGE_FIELDS_THRESHOLD}+ observations.`,
-      );
-    }
+    try {
+      await downloadServerTraceAsJson({
+        traceId: trace.id,
+        projectId: trace.projectId,
+      });
 
-    await downloadServerTraceAsJson({
-      traceId: trace.id,
-      projectId: trace.projectId,
-    }).catch((error) => {
+      if (observations.length >= TRACE_DOWNLOAD_OMIT_LARGE_FIELDS_THRESHOLD) {
+        toast.warning(
+          `Trace download excludes IO, metadata, toolDefinitions, and toolCalls for traces with ${TRACE_DOWNLOAD_OMIT_LARGE_FIELDS_THRESHOLD}+ observations.`,
+        );
+      }
+    } catch (error) {
       toast.error(
         error instanceof Error
           ? error.message
           : "Failed to download trace JSON",
       );
-    });
+    }
   }, [observations.length, trace.id, trace.projectId]);
 
   const handleLegacyDownload = useCallback(() => {
