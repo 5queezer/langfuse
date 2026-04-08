@@ -545,6 +545,12 @@ export type GenerationDetails = {
   metadata: Record<string, unknown>;
 };
 
+export type ProcessedTraceEvent = {
+  type: string;
+  timestamp: string;
+  body: Record<string, unknown>;
+};
+
 export type TraceSinkParams = {
   /**
    * IMPORTANT: This controls into what project the resulting traces are ingested.
@@ -560,6 +566,13 @@ export type TraceSinkParams = {
     name: string;
     version: number;
   };
+  /**
+   * Optional callback invoked after traced events have been filtered and
+   * processed for internal ingestion.
+   */
+  onProcessedEvents?: (
+    processedEvents: ProcessedTraceEvent[],
+  ) => void | Promise<void>;
   /**
    * Optional callback invoked after the generation events have been processed.
    * Called with merged generation details (from create + update events).

@@ -1,5 +1,9 @@
 import CallbackHandler from "langfuse-langchain";
-import { GenerationDetails, TraceSinkParams } from "./types";
+import {
+  GenerationDetails,
+  ProcessedTraceEvent,
+  TraceSinkParams,
+} from "./types";
 import { processEventBatch } from "../ingestion/processEventBatch";
 import { logger } from "../logger";
 import { traceException } from "../instrumentation";
@@ -15,7 +19,7 @@ import { traceException } from "../instrumentation";
  * @returns GenerationDetails or null if no generation events found
  */
 export function extractGenerationDetails(
-  processedEvents: Array<{ type: string; body: Record<string, unknown> }>,
+  processedEvents: ProcessedTraceEvent[],
 ): GenerationDetails | null {
   // 1. Filter to only generation events
   const generationEvents = processedEvents.filter(
@@ -73,6 +77,58 @@ export function extractGenerationDetails(
   };
 }
 
+export function prepareInternalTraceEvents(params: {
+  events: Array<{
+    type: string;
+    timestamp: string;
+    body: Record<string, unknown>;
+  }>;
+  prompt?: TraceSinkParams["prompt"];
+}): ProcessedTraceEvent[] {
+  const { events, prompt } = params;
+
+  const blockedSpanIds = new Set();
+  const blockedSpanNames = [
+    "RunnableLambda",
+    "StructuredOutputParser",
+    "StrOutputParser",
+    "JsonOutputParser",
+  ];
+
+  for (const event of events) {
+    const eventName = "name" in event.body ? event.body.name : "";
+
+    if (!eventName) continue;
+
+    if (blockedSpanNames.includes(eventName as string) && "id" in event.body) {
+      blockedSpanIds.add(event.body.id);
+    }
+  }
+
+  return events
+    .filter((event) => {
+      if ("id" in event.body) {
+        return !blockedSpanIds.has(event.body.id);
+      }
+
+      return true;
+    })
+    .map((event) => {
+      if (event.type === "generation-create" && prompt) {
+        return {
+          ...event,
+          body: {
+            ...event.body,
+            promptName: prompt.name,
+            promptVersion: prompt.version,
+          },
+        };
+      }
+
+      return event;
+    });
+}
+
 export function getInternalTracingHandler(traceSinkParams: TraceSinkParams): {
   handler: CallbackHandler;
   processTracedEvents: () => Promise<void>;
@@ -90,63 +146,40 @@ export function getInternalTracingHandler(traceSinkParams: TraceSinkParams): {
       const events = await handler.langfuse._exportLocalEvents(
         traceSinkParams.targetProjectId,
       );
+      const processedEvents = prepareInternalTraceEvents({ events, prompt });
 
-      // Filter out unnecessary Langchain spans
-      const blockedSpanIds = new Set();
-      const blockedSpanNames = [
-        "RunnableLambda",
-        "StructuredOutputParser",
-        "StrOutputParser",
-        "JsonOutputParser",
-      ];
+      try {
+        await processEventBatch(
+          JSON.parse(JSON.stringify(processedEvents)), // stringify to emulate network event batch from network call
+          {
+            validKey: true as const,
+            scope: {
+              projectId: traceSinkParams.targetProjectId, // Important: this controls into what project traces are ingested.
+              accessLevel: "project",
+            } as any,
+          },
+          {
+            isLangfuseInternal: true,
+          },
+        );
+      } catch (processingError) {
+        traceException(processingError);
+        logger.error("Failed to process traced events via legacy ingestion", {
+          error: processingError,
+        });
+      }
 
-      for (const event of events) {
-        const eventName = "name" in event.body ? event.body.name : "";
-
-        if (!eventName) continue;
-
-        if (blockedSpanNames.includes(eventName) && "id" in event.body) {
-          blockedSpanIds.add(event.body.id);
+      if (traceSinkParams.onProcessedEvents) {
+        try {
+          await traceSinkParams.onProcessedEvents(processedEvents);
+        } catch (callbackError) {
+          traceException(callbackError);
+          logger.error("Failed to process traced events callback", {
+            error: callbackError,
+          });
         }
       }
 
-      const processedEvents = events
-        .filter((event) => {
-          if ("id" in event.body) {
-            return !blockedSpanIds.has(event.body.id);
-          }
-
-          return true;
-        })
-        .map((event: any) => {
-          // to add the prompt name and version to only generation-type observations
-          if (event.type === "generation-create" && prompt) {
-            return {
-              ...event,
-              body: {
-                ...event.body,
-                ...{ promptName: prompt.name, promptVersion: prompt.version },
-              },
-            };
-          }
-          return event;
-        });
-
-      await processEventBatch(
-        JSON.parse(JSON.stringify(processedEvents)), // stringify to emulate network event batch from network call
-        {
-          validKey: true as const,
-          scope: {
-            projectId: traceSinkParams.targetProjectId, // Important: this controls into what project traces are ingested.
-            accessLevel: "project",
-          } as any,
-        },
-        {
-          isLangfuseInternal: true,
-        },
-      );
-
-      // Extract generation details and invoke callback (if provided)
       if (traceSinkParams.onGenerationComplete) {
         try {
           const generationDetails = extractGenerationDetails(processedEvents);

@@ -1,13 +1,18 @@
-import { DatasetItemDomain, Prisma } from "@langfuse/shared";
+import {
+  convertEventRecordToObservationForEval,
+  DatasetItemDomain,
+  Prisma,
+} from "@langfuse/shared";
 import {
   ChatMessage,
   createDatasetItemFilterState,
   DatasetRunItemUpsertQueue,
+  EventRecordInsertType,
   eventTypes,
   ExperimentCreateEventSchema,
   fetchLLMCompletion,
-  GenerationDetails,
   getDatasetItems,
+  clickhouseClient,
   IngestionEventType,
   LangfuseInternalTraceEnvironment,
   logger,
@@ -32,6 +37,19 @@ import {
 import { randomUUID } from "crypto";
 import { createW3CTraceId } from "../utils";
 import { scheduleExperimentObservationEvals } from "./scheduleExperimentEvals";
+import { prisma } from "@langfuse/shared/src/db";
+import { IngestionService } from "../../services/IngestionService";
+import { ClickhouseWriter } from "../../services/ClickhouseWriter";
+import { buildPromptExperimentEventInputs } from "./promptExperimentTraceMaterializer";
+
+function createExperimentIngestionService() {
+  return new IngestionService(
+    redis as any,
+    prisma,
+    ClickhouseWriter.getInstance(),
+    clickhouseClient(),
+  );
+}
 
 async function getExistingRunItemDatasetItemIds(
   projectId: string,
@@ -130,13 +148,11 @@ async function processItem(
    * SCHEDULE EXPERIMENT OBSERVATION EVALS *
    ********************/
 
-  if (llmResult.generationDetails) {
+  if (llmResult.rootEventRecord) {
     await scheduleExperimentObservationEvals({
-      projectId,
-      traceId: newTraceId,
-      datasetItem,
-      config,
-      generationDetails: llmResult.generationDetails,
+      observation: convertEventRecordToObservationForEval(
+        llmResult.rootEventRecord,
+      ),
     });
   }
 
@@ -169,7 +185,7 @@ async function processLLMCall(
   traceId: string,
   datasetItem: DatasetItemDomain & { input: Prisma.JsonObject },
   config: PromptExperimentConfig,
-): Promise<{ success: boolean; generationDetails?: GenerationDetails }> {
+): Promise<{ success: boolean; rootEventRecord?: EventRecordInsertType }> {
   let messages: ChatMessage[] = [];
   // Extract and replace variables in prompt
   try {
@@ -187,7 +203,8 @@ async function processLLMCall(
     return { success: false };
   }
 
-  let generationDetails: GenerationDetails | null = null;
+  let rootEventRecord: EventRecordInsertType | undefined;
+  const ingestionService = createExperimentIngestionService();
 
   const traceSinkParams: TraceSinkParams = {
     environment: LangfuseInternalTraceEnvironment.PromptExperiments,
@@ -202,8 +219,32 @@ async function processLLMCall(
       experiment_run_name: config.experimentRunName,
     },
     prompt: config.prompt,
-    onGenerationComplete: (details) => {
-      generationDetails = details;
+    onProcessedEvents: async (processedEvents) => {
+      const { rootSpanId, eventInputs } = buildPromptExperimentEventInputs({
+        processedEvents,
+        traceId,
+        projectId: config.projectId,
+        datasetItem,
+        config,
+      });
+
+      if (eventInputs.length === 0) {
+        return;
+      }
+
+      const eventRecords = await Promise.all(
+        eventInputs.map((eventInput) =>
+          ingestionService.createEventRecord(eventInput, ""),
+        ),
+      );
+
+      rootEventRecord = eventRecords.find(
+        (eventRecord) => eventRecord.span_id === rootSpanId,
+      );
+
+      for (const eventRecord of eventRecords) {
+        ingestionService.writeEventRecord(eventRecord);
+      }
     },
   };
 
@@ -224,7 +265,7 @@ async function processLLMCall(
 
   return {
     success: true,
-    generationDetails: generationDetails ?? undefined,
+    rootEventRecord,
   };
 }
 
