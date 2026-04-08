@@ -262,7 +262,7 @@ const getObservationRecordCountForTrace = async (params: {
   const skipDedup = await shouldSkipObservationsFinal(projectId);
 
   const countExpression = skipDedup ? "count()" : "uniqExact(id)";
-  const records = await queryClickhouse<{ count: number }>({
+  const records = await queryClickhouse<{ count: string }>({
     query: `
       SELECT ${countExpression} AS count
       FROM observations
@@ -285,7 +285,7 @@ const getObservationRecordCountForTrace = async (params: {
     preferredClickhouseService: "ReadOnly",
   });
 
-  return records[0]?.count ?? 0;
+  return Number(records[0]?.count ?? 0);
 };
 
 async function getAuthorizedTrace(params: {
