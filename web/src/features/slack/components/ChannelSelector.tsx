@@ -277,7 +277,15 @@ export const ChannelSelector: React.FC<ChannelSelectorProps> = ({
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-2">
-        <Popover open={open} onOpenChange={setOpen}>
+        <Popover
+          open={open}
+          onOpenChange={(newOpen) => {
+            setOpen(newOpen);
+            if (!newOpen) {
+              setSearchValue("");
+            }
+          }}
+        >
           <PopoverTrigger asChild>
             <Button
               variant="outline"

@@ -275,6 +275,7 @@ const EnvSchema = z.object({
   SLACK_PAGE_SIZE: z.coerce
     .number()
     .positive()
+    .int()
     .max(1000)
     .optional()
     .default(1000) // Use high default to minimize number of API calls and hence avoid rate limits
