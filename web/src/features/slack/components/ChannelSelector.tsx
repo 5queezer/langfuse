@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from "react";
+import React, { useState, useMemo, useCallback, useEffect } from "react";
 import { RefreshCw, Search, Hash, Lock, AlertTriangle } from "lucide-react";
 import { Button } from "@/src/components/ui/button";
 import {
@@ -88,6 +88,8 @@ export const ChannelSelector: React.FC<ChannelSelectorProps> = ({
   const [searchValue, setSearchValue] = useState("");
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [scrollNode, setScrollNode] = useState<HTMLDivElement | null>(null);
+  const trimmedSearch = searchValue.trim();
+  const effectiveName = trimmedSearch.replace(/^#/, "");
 
   // Get available channels
   const {
@@ -131,21 +133,21 @@ export const ChannelSelector: React.FC<ChannelSelectorProps> = ({
     }
 
     // Apply search filter
-    if (searchValue.trim()) {
-      const searchTerm = searchValue.toLowerCase().trim();
+    if (effectiveName) {
+      const searchTerm = effectiveName.toLowerCase();
       channels = channels.filter((channel) =>
         channel.name.toLowerCase().includes(searchTerm),
       );
     }
 
     // Sort channels: public channels first, then private, then by name
-    return channels.sort((a, b) => {
+    return [...channels].sort((a, b) => {
       if (a.isPrivate !== b.isPrivate) {
         return a.isPrivate ? 1 : -1;
       }
       return a.name.localeCompare(b.name);
     });
-  }, [channelsData?.channels, memberOnly, filterChannels, searchValue]);
+  }, [channelsData?.channels, memberOnly, filterChannels, effectiveName]);
 
   const virtualizer = useVirtualizer({
     count: filteredChannels.length,
@@ -173,7 +175,7 @@ export const ChannelSelector: React.FC<ChannelSelectorProps> = ({
   );
 
   const handleSelectByName = useCallback(() => {
-    const name = searchValue.replace(/^#/, "").trim();
+    const name = searchValue.trim().replace(/^#/, "");
     if (!name) return;
     selectAndClose({
       id: `#${name}`,
@@ -182,6 +184,12 @@ export const ChannelSelector: React.FC<ChannelSelectorProps> = ({
       isMember: false,
     });
   }, [searchValue, selectAndClose]);
+
+  useEffect(() => {
+    if (scrollNode) {
+      scrollNode.scrollTop = 0;
+    }
+  }, [effectiveName, scrollNode]);
 
   // Render channel item
   const renderChannelItem = (channel: SlackChannel) => (
@@ -241,14 +249,23 @@ export const ChannelSelector: React.FC<ChannelSelectorProps> = ({
     );
   }
 
-  const trimmedSearch = searchValue.trim();
-  const noLocalMatches =
-    trimmedSearch.length > 0 && filteredChannels.length === 0;
+  const hasExactMatch = filteredChannels.some(
+    (channel) => channel.name.toLowerCase() === effectiveName.toLowerCase(),
+  );
+  const canUseTypedName = effectiveName.length > 0 && !hasExactMatch;
 
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-2">
-        <Popover open={open} onOpenChange={setOpen}>
+        <Popover
+          open={open}
+          onOpenChange={(newOpen) => {
+            setOpen(newOpen);
+            if (!newOpen) {
+              setSearchValue("");
+            }
+          }}
+        >
           <PopoverTrigger asChild>
             <Button
               variant="outline"
@@ -273,14 +290,25 @@ export const ChannelSelector: React.FC<ChannelSelectorProps> = ({
                 onValueChange={setSearchValue}
               />
               <CommandList ref={setScrollNode}>
-                {filteredChannels.length === 0 && (
-                  <CommandEmpty>
-                    {noLocalMatches
-                      ? "No channels match your search."
-                      : "No channels available."}
-                  </CommandEmpty>
+                {canUseTypedName && (
+                  <CommandGroup className="p-0">
+                    <CommandItem
+                      value={`use-${effectiveName}`}
+                      onSelect={handleSelectByName}
+                      className="cursor-pointer"
+                    >
+                      <Hash className="text-muted-foreground h-4 w-4" />
+                      <span className="flex-1 truncate">
+                        Use &quot;{effectiveName}&quot;
+                      </span>
+                    </CommandItem>
+                  </CommandGroup>
+                )}
+                {!canUseTypedName && filteredChannels.length === 0 && (
+                  <CommandEmpty>No channels available.</CommandEmpty>
                 )}
                 <CommandGroup
+                  className="p-0"
                   style={{
                     height: virtualizer.getTotalSize(),
                     position: "relative",
@@ -307,22 +335,6 @@ export const ChannelSelector: React.FC<ChannelSelectorProps> = ({
                     );
                   })}
                 </CommandGroup>
-
-                {/* When search has no matches, offer to use the typed name */}
-                {noLocalMatches && (
-                  <CommandGroup>
-                    <CommandItem
-                      value={`use-${trimmedSearch}`}
-                      onSelect={handleSelectByName}
-                      className="cursor-pointer"
-                    >
-                      <Hash className="text-muted-foreground h-4 w-4" />
-                      <span className="flex-1 truncate">
-                        Use &quot;{trimmedSearch.replace(/^#/, "")}&quot;
-                      </span>
-                    </CommandItem>
-                  </CommandGroup>
-                )}
               </CommandList>
             </Command>
           </PopoverContent>
