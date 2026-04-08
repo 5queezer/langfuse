@@ -4,17 +4,15 @@ import {
   LangfuseInternalTraceEnvironment,
 } from "@langfuse/shared";
 import {
+  buildInternalTraceEventInputs,
   extractGenerationDetails,
+  materializeInternalTrace,
   prepareInternalTraceEvents,
 } from "@langfuse/shared/src/server";
 import { prisma } from "@langfuse/shared/src/db";
 import type { ObservationForEval } from "../../evaluation/observationEval";
 import { IngestionService } from "../../../services/IngestionService";
 import * as clickhouseWriterExports from "../../../services/ClickhouseWriter";
-import {
-  buildPromptExperimentEventInputs,
-  materializePromptExperimentTrace,
-} from "../promptExperimentTraceMaterializer";
 import { scheduleExperimentObservationEvals } from "../scheduleExperimentEvals";
 
 const {
@@ -365,6 +363,20 @@ function getProcessedExperimentEvents() {
   });
 }
 
+function getExperimentContext() {
+  return {
+    id: config.runId,
+    name: config.datasetRun.name,
+    metadata: config.datasetRun.metadata,
+    description: config.datasetRun.description,
+    datasetId: datasetItem.datasetId,
+    itemId: datasetItem.id,
+    itemVersion: datasetItem.validFrom.toISOString(),
+    itemExpectedOutput: datasetItem.expectedOutput,
+    itemMetadata: datasetItem.metadata,
+  };
+}
+
 describe("extractGenerationDetails", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -413,7 +425,7 @@ describe("prompt experiment direct-write materialization", () => {
 
   it("should filter parser spans and use the trace root as the experiment root", () => {
     const processedEvents = getProcessedExperimentEvents();
-    const { rootSpanId, snapshots } = materializePromptExperimentTrace({
+    const { rootSpanId, snapshots } = materializeInternalTrace({
       processedEvents,
       traceId,
     });
@@ -465,12 +477,11 @@ describe("prompt experiment direct-write materialization", () => {
   });
 
   it("should build trace-rooted event inputs with experiment metadata", async () => {
-    const { rootSpanId, eventInputs } = buildPromptExperimentEventInputs({
+    const { rootSpanId, eventInputs } = buildInternalTraceEventInputs({
       processedEvents: getProcessedExperimentEvents(),
       traceId,
       projectId: "project-123",
-      datasetItem,
-      config,
+      experiment: getExperimentContext(),
     });
 
     expect(rootSpanId).toBe(traceId);
@@ -530,6 +541,25 @@ describe("prompt experiment direct-write materialization", () => {
       JSON.stringify({ capital: "Berlin" }),
     );
   });
+
+  it("should build non-experiment internal traces without experiment columns", () => {
+    const { eventInputs } = buildInternalTraceEventInputs({
+      processedEvents: getProcessedExperimentEvents(),
+      traceId,
+      projectId: "project-123",
+    });
+
+    const rootEventInput = eventInputs.find(
+      (eventInput) => eventInput.spanId === traceId,
+    );
+
+    expect(rootEventInput).toMatchObject({
+      spanId: traceId,
+      source: "ingestion-api-dual-write",
+      experimentId: undefined,
+      experimentItemRootSpanId: undefined,
+    });
+  });
 });
 
 describe("scheduleExperimentObservationEvals", () => {
@@ -545,12 +575,11 @@ describe("scheduleExperimentObservationEvals", () => {
   });
 
   it("should schedule evals against the trace-root observation", async () => {
-    const { eventInputs } = buildPromptExperimentEventInputs({
+    const { eventInputs } = buildInternalTraceEventInputs({
       processedEvents: getProcessedExperimentEvents(),
       traceId,
       projectId: "project-123",
-      datasetItem,
-      config,
+      experiment: getExperimentContext(),
     });
     const rootEventInput = eventInputs.find(
       (eventInput) => eventInput.spanId === traceId,

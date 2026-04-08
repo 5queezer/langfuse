@@ -5,6 +5,11 @@ import {
   VertexAIConfigSchema,
 } from "../../interfaces/customLLMProviderConfigSchemas";
 import { JSONObjectSchema } from "../../utils/zod";
+import type { EventRecordInsertType } from "../repositories/definitions";
+import type {
+  InternalTraceEventInput,
+  InternalTraceExperimentContext,
+} from "./internalTraceEvents";
 
 // disable lint as this is exported and used in web/worker
 
@@ -551,6 +556,18 @@ export type ProcessedTraceEvent = {
   body: Record<string, unknown>;
 };
 
+export type InternalTraceDirectEventWrite = {
+  enabled: boolean;
+  experiment?: InternalTraceExperimentContext;
+  writeEventInputs: (params: {
+    rootSpanId: string;
+    eventInputs: InternalTraceEventInput[];
+  }) => Promise<{ rootEventRecord?: EventRecordInsertType } | void>;
+  onRootEventRecordReady?: (
+    rootEventRecord: EventRecordInsertType,
+  ) => void | Promise<void>;
+};
+
 export type TraceSinkParams = {
   /**
    * IMPORTANT: This controls into what project the resulting traces are ingested.
@@ -566,6 +583,7 @@ export type TraceSinkParams = {
     name: string;
     version: number;
   };
+  eventsTableWrite?: InternalTraceDirectEventWrite;
   /**
    * Optional callback invoked after traced events have been filtered and
    * processed for internal ingestion.

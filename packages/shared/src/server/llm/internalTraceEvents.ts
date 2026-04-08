@@ -1,17 +1,98 @@
-import { DatasetItemDomain, Prisma, stringifyValue } from "@langfuse/shared";
+import { stringifyValue } from "../../utils/stringChecks";
 import {
   convertCallsToArrays,
   convertDefinitionsToMap,
   extractToolsFromObservation,
-  flattenJsonToPathArrays,
-  type ProcessedTraceEvent,
-} from "@langfuse/shared/src/server";
-import type { EventInput } from "../../services/IngestionService";
-import type { PromptExperimentConfig } from "./utils";
+} from "../ingestion/extractToolsBackend";
+import { flattenJsonToPathArrays } from "../otel/utils";
+import type { ProcessedTraceEvent } from "./types";
 
-const PROMPT_EXPERIMENT_EVENT_SOURCE = "ingestion-api-dual-write-experiments";
+export const INTERNAL_TRACE_EVENT_SOURCE = "ingestion-api-dual-write";
+export const INTERNAL_TRACE_EXPERIMENT_EVENT_SOURCE =
+  "ingestion-api-dual-write-experiments";
 
-type PromptExperimentSnapshot = {
+export type InternalTraceExperimentContext = {
+  id: string;
+  name: string;
+  metadata?: Record<string, unknown>;
+  description?: string | null;
+  datasetId: string;
+  itemId: string;
+  itemVersion: string;
+  itemExpectedOutput?: unknown;
+  itemMetadata?: Record<string, unknown> | null;
+};
+
+/**
+ * Flexible input type for writing events to the events table.
+ * This is intentionally loose to allow for iteration as the events
+ * table schema evolves. Only required fields are enforced.
+ */
+export type InternalTraceEventInput = {
+  projectId: string;
+  traceId: string;
+  spanId: string;
+  startTimeISO: string;
+  orgId?: string;
+  parentSpanId?: string;
+  name?: string;
+  type?: string;
+  environment?: string;
+  version?: string;
+  release?: string;
+  endTimeISO: string;
+  completionStartTime?: string;
+  traceName?: string;
+  tags?: string[];
+  bookmarked?: boolean;
+  public?: boolean;
+  userId?: string;
+  sessionId?: string;
+  level?: string;
+  statusMessage?: string;
+  promptId?: string;
+  promptName?: string;
+  promptVersion?: string;
+  modelId?: string;
+  modelName?: string;
+  modelParameters?: string | Record<string, unknown>;
+  providedUsageDetails?: Record<string, number>;
+  usageDetails?: Record<string, number>;
+  providedCostDetails?: Record<string, number>;
+  costDetails?: Record<string, number>;
+  toolDefinitions?: Record<string, string>;
+  toolCalls?: string[];
+  toolCallNames?: string[];
+  input?: string;
+  output?: string;
+  metadata: Record<string, unknown>;
+  source: string;
+  serviceName?: string;
+  serviceVersion?: string;
+  scopeName?: string;
+  scopeVersion?: string;
+  telemetrySdkLanguage?: string;
+  telemetrySdkName?: string;
+  telemetrySdkVersion?: string;
+  blobStorageFilePath?: string;
+  eventRaw?: string;
+  eventBytes?: number;
+  experimentId?: string;
+  experimentName?: string;
+  experimentMetadataNames?: string[];
+  experimentMetadataValues?: Array<string | null | undefined>;
+  experimentDescription?: string;
+  experimentDatasetId?: string;
+  experimentItemId?: string;
+  experimentItemVersion?: string;
+  experimentItemRootSpanId?: string;
+  experimentItemExpectedOutput?: string;
+  experimentItemMetadataNames?: string[];
+  experimentItemMetadataValues?: Array<string | null | undefined>;
+  [key: string]: any;
+};
+
+type InternalTraceSnapshot = {
   spanId: string;
   traceId: string;
   parentSpanId?: string;
@@ -41,9 +122,9 @@ type PromptExperimentSnapshot = {
   sessionId?: string;
 };
 
-export type MaterializedPromptExperimentTrace = {
+export type MaterializedInternalTrace = {
   rootSpanId: string;
-  snapshots: PromptExperimentSnapshot[];
+  snapshots: InternalTraceSnapshot[];
 };
 
 function asString(value: unknown): string | undefined {
@@ -146,9 +227,9 @@ function flattenMetadata(value: unknown): {
 }
 
 function mergeSnapshotEvent(
-  snapshot: PromptExperimentSnapshot,
+  snapshot: InternalTraceSnapshot,
   event: ProcessedTraceEvent,
-): PromptExperimentSnapshot {
+): InternalTraceSnapshot {
   const { body } = event;
   const startTime = asString(body.startTime);
   const timestamp = asString(body.timestamp) ?? asString(event.timestamp);
@@ -205,12 +286,12 @@ function mergeSnapshotEvent(
   };
 }
 
-export function materializePromptExperimentTrace(params: {
+export function materializeInternalTrace(params: {
   processedEvents: ProcessedTraceEvent[];
   traceId: string;
-}): MaterializedPromptExperimentTrace {
+}): MaterializedInternalTrace {
   const { processedEvents, traceId } = params;
-  const snapshots = new Map<string, PromptExperimentSnapshot>();
+  const snapshots = new Map<string, InternalTraceSnapshot>();
   const rootSpanId =
     asString(
       processedEvents.find((event) => event.type === "trace-create")?.body.id,
@@ -230,7 +311,7 @@ export function materializePromptExperimentTrace(params: {
         traceId: asString(event.body.traceId) ?? traceId,
         type: getSnapshotType(event.type),
         metadata: {},
-      } satisfies PromptExperimentSnapshot);
+      } satisfies InternalTraceSnapshot);
 
     snapshots.set(spanId, mergeSnapshotEvent(existingSnapshot, event));
   }
@@ -255,18 +336,17 @@ export function materializePromptExperimentTrace(params: {
   };
 }
 
-export function buildPromptExperimentEventInputs(params: {
+export function buildInternalTraceEventInputs(params: {
   processedEvents: ProcessedTraceEvent[];
   traceId: string;
   projectId: string;
-  datasetItem: DatasetItemDomain & { input: Prisma.JsonObject };
-  config: PromptExperimentConfig;
+  experiment?: InternalTraceExperimentContext;
 }): {
   rootSpanId: string;
-  eventInputs: EventInput[];
+  eventInputs: InternalTraceEventInput[];
 } {
-  const { processedEvents, traceId, projectId, datasetItem, config } = params;
-  const { rootSpanId, snapshots } = materializePromptExperimentTrace({
+  const { processedEvents, traceId, projectId, experiment } = params;
+  const { rootSpanId, snapshots } = materializeInternalTrace({
     processedEvents,
     traceId,
   });
@@ -278,8 +358,11 @@ export function buildPromptExperimentEventInputs(params: {
     return { rootSpanId, eventInputs: [] };
   }
 
-  const experimentMetadata = flattenMetadata(config.datasetRun.metadata);
-  const experimentItemMetadata = flattenMetadata(datasetItem.metadata);
+  const experimentMetadata = flattenMetadata(experiment?.metadata);
+  const experimentItemMetadata = flattenMetadata(experiment?.itemMetadata);
+  const source = experiment
+    ? INTERNAL_TRACE_EXPERIMENT_EVENT_SOURCE
+    : INTERNAL_TRACE_EVENT_SOURCE;
 
   const eventInputs = snapshots.map((snapshot) => {
     const { toolDefinitions, toolArguments } = extractToolsFromObservation(
@@ -342,24 +425,24 @@ export function buildPromptExperimentEventInputs(params: {
           ? stringifyValue(snapshot.output)
           : undefined,
       metadata: snapshot.metadata,
-      source: PROMPT_EXPERIMENT_EVENT_SOURCE,
-      experimentId: config.runId,
-      experimentName: config.datasetRun.name,
+      source,
+      experimentId: experiment?.id,
+      experimentName: experiment?.name,
       experimentMetadataNames: experimentMetadata.names,
       experimentMetadataValues: experimentMetadata.values,
-      experimentDescription: config.datasetRun.description ?? undefined,
-      experimentDatasetId: datasetItem.datasetId,
-      experimentItemId: datasetItem.id,
-      experimentItemVersion: datasetItem.validFrom.toISOString(),
-      experimentItemRootSpanId: rootSpanId,
+      experimentDescription: experiment?.description ?? undefined,
+      experimentDatasetId: experiment?.datasetId,
+      experimentItemId: experiment?.itemId,
+      experimentItemVersion: experiment?.itemVersion,
+      experimentItemRootSpanId: experiment ? rootSpanId : undefined,
       experimentItemExpectedOutput:
-        datasetItem.expectedOutput !== undefined &&
-        datasetItem.expectedOutput !== null
-          ? stringifyValue(datasetItem.expectedOutput)
+        experiment?.itemExpectedOutput !== undefined &&
+        experiment?.itemExpectedOutput !== null
+          ? stringifyValue(experiment.itemExpectedOutput)
           : undefined,
       experimentItemMetadataNames: experimentItemMetadata.names,
       experimentItemMetadataValues: experimentItemMetadata.values,
-    } satisfies EventInput;
+    } satisfies InternalTraceEventInput;
   });
 
   return {

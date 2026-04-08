@@ -7,12 +7,10 @@ import {
   ChatMessage,
   createDatasetItemFilterState,
   DatasetRunItemUpsertQueue,
-  EventRecordInsertType,
   eventTypes,
   ExperimentCreateEventSchema,
   fetchLLMCompletion,
   getDatasetItems,
-  clickhouseClient,
   IngestionEventType,
   LangfuseInternalTraceEnvironment,
   logger,
@@ -37,19 +35,7 @@ import {
 import { randomUUID } from "crypto";
 import { createW3CTraceId } from "../utils";
 import { scheduleExperimentObservationEvals } from "./scheduleExperimentEvals";
-import { prisma } from "@langfuse/shared/src/db";
-import { IngestionService } from "../../services/IngestionService";
-import { ClickhouseWriter } from "../../services/ClickhouseWriter";
-import { buildPromptExperimentEventInputs } from "./promptExperimentTraceMaterializer";
-
-function createExperimentIngestionService() {
-  return new IngestionService(
-    redis as any,
-    prisma,
-    ClickhouseWriter.getInstance(),
-    clickhouseClient(),
-  );
-}
+import { createInternalTraceEventsTableWrite } from "../internal-tracing/createInternalTraceEventsTableWrite";
 
 async function getExistingRunItemDatasetItemIds(
   projectId: string,
@@ -80,6 +66,14 @@ async function getExistingRunItemDatasetItemIds(
   });
 
   return new Set(rows.map((row) => row.id));
+}
+
+function asJsonObject(
+  value: Prisma.JsonValue | null | undefined,
+): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
 }
 
 async function processItem(
@@ -145,18 +139,6 @@ async function processItem(
   if (!llmResult.success) return { success: false };
 
   /********************
-   * SCHEDULE EXPERIMENT OBSERVATION EVALS *
-   ********************/
-
-  if (llmResult.rootEventRecord) {
-    await scheduleExperimentObservationEvals({
-      observation: convertEventRecordToObservationForEval(
-        llmResult.rootEventRecord,
-      ),
-    });
-  }
-
-  /********************
    * ASYNC RUN ITEM EVAL *
    ********************/
 
@@ -185,7 +167,7 @@ async function processLLMCall(
   traceId: string,
   datasetItem: DatasetItemDomain & { input: Prisma.JsonObject },
   config: PromptExperimentConfig,
-): Promise<{ success: boolean; rootEventRecord?: EventRecordInsertType }> {
+): Promise<{ success: boolean }> {
   let messages: ChatMessage[] = [];
   // Extract and replace variables in prompt
   try {
@@ -202,10 +184,6 @@ async function processLLMCall(
     );
     return { success: false };
   }
-
-  let rootEventRecord: EventRecordInsertType | undefined;
-  const ingestionService = createExperimentIngestionService();
-
   const traceSinkParams: TraceSinkParams = {
     environment: LangfuseInternalTraceEnvironment.PromptExperiments,
     traceName: `dataset-run-item-${runItemId.slice(0, 5)}`,
@@ -219,33 +197,24 @@ async function processLLMCall(
       experiment_run_name: config.experimentRunName,
     },
     prompt: config.prompt,
-    onProcessedEvents: async (processedEvents) => {
-      const { rootSpanId, eventInputs } = buildPromptExperimentEventInputs({
-        processedEvents,
-        traceId,
-        projectId: config.projectId,
-        datasetItem,
-        config,
-      });
-
-      if (eventInputs.length === 0) {
-        return;
-      }
-
-      const eventRecords = await Promise.all(
-        eventInputs.map((eventInput) =>
-          ingestionService.createEventRecord(eventInput, ""),
-        ),
-      );
-
-      rootEventRecord = eventRecords.find(
-        (eventRecord) => eventRecord.span_id === rootSpanId,
-      );
-
-      for (const eventRecord of eventRecords) {
-        ingestionService.writeEventRecord(eventRecord);
-      }
-    },
+    eventsTableWrite: createInternalTraceEventsTableWrite({
+      experiment: {
+        id: config.runId,
+        name: config.datasetRun.name,
+        metadata: asJsonObject(config.datasetRun.metadata),
+        description: config.datasetRun.description,
+        datasetId: datasetItem.datasetId,
+        itemId: datasetItem.id,
+        itemVersion: datasetItem.validFrom.toISOString(),
+        itemExpectedOutput: datasetItem.expectedOutput,
+        itemMetadata: asJsonObject(datasetItem.metadata),
+      },
+      onRootEventRecordReady: async (rootEventRecord) => {
+        await scheduleExperimentObservationEvals({
+          observation: convertEventRecordToObservationForEval(rootEventRecord),
+        });
+      },
+    }),
   };
 
   await fetchLLMCompletion({
@@ -263,10 +232,7 @@ async function processLLMCall(
     traceSinkParams,
   }).catch(); // catch errors and do not retry
 
-  return {
-    success: true,
-    rootEventRecord,
-  };
+  return { success: true };
 }
 
 async function getItemsToProcess(

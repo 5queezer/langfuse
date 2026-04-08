@@ -4,6 +4,7 @@ import {
   ProcessedTraceEvent,
   TraceSinkParams,
 } from "./types";
+import { buildInternalTraceEventInputs } from "./internalTraceEvents";
 import { processEventBatch } from "../ingestion/processEventBatch";
 import { logger } from "../logger";
 import { traceException } from "../instrumentation";
@@ -133,7 +134,8 @@ export function getInternalTracingHandler(traceSinkParams: TraceSinkParams): {
   handler: CallbackHandler;
   processTracedEvents: () => Promise<void>;
 } {
-  const { prompt, targetProjectId, environment, userId } = traceSinkParams;
+  const { prompt, targetProjectId, environment, userId, eventsTableWrite } =
+    traceSinkParams;
   const handler = new CallbackHandler({
     _projectId: targetProjectId,
     _isLocalEventExportEnabled: true,
@@ -160,6 +162,7 @@ export function getInternalTracingHandler(traceSinkParams: TraceSinkParams): {
           },
           {
             isLangfuseInternal: true,
+            forwardToEventsTable: eventsTableWrite?.enabled ? false : undefined,
           },
         );
       } catch (processingError) {
@@ -167,6 +170,38 @@ export function getInternalTracingHandler(traceSinkParams: TraceSinkParams): {
         logger.error("Failed to process traced events via legacy ingestion", {
           error: processingError,
         });
+      }
+
+      if (eventsTableWrite?.enabled) {
+        try {
+          const { rootSpanId, eventInputs } = buildInternalTraceEventInputs({
+            processedEvents,
+            traceId: traceSinkParams.traceId,
+            projectId: targetProjectId,
+            experiment: eventsTableWrite.experiment,
+          });
+
+          if (eventInputs.length > 0) {
+            const writeResult = await eventsTableWrite.writeEventInputs({
+              rootSpanId,
+              eventInputs,
+            });
+
+            if (
+              writeResult?.rootEventRecord &&
+              eventsTableWrite.onRootEventRecordReady
+            ) {
+              await eventsTableWrite.onRootEventRecordReady(
+                writeResult.rootEventRecord,
+              );
+            }
+          }
+        } catch (writeError) {
+          traceException(writeError);
+          logger.error("Failed to direct-write internal traced events", {
+            error: writeError,
+          });
+        }
       }
 
       if (traceSinkParams.onProcessedEvents) {
