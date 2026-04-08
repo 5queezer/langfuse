@@ -155,14 +155,14 @@ export const ChannelSelector: React.FC<ChannelSelectorProps> = ({
 
     // Apply search filter
     if (searchValue.trim()) {
-      const searchTerm = searchValue.toLowerCase().trim();
+      const searchTerm = searchValue.replace(/^#/, "").toLowerCase().trim();
       channels = channels.filter((channel) =>
         channel.name.toLowerCase().includes(searchTerm),
       );
     }
 
     // Sort channels: public channels first, then private, then by name
-    return channels.sort((a, b) => {
+    return [...channels].sort((a, b) => {
       if (a.isPrivate !== b.isPrivate) {
         return a.isPrivate ? 1 : -1;
       }
