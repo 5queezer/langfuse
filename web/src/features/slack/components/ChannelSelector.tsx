@@ -273,11 +273,13 @@ export const ChannelSelector: React.FC<ChannelSelectorProps> = ({
                 onValueChange={setSearchValue}
               />
               <CommandList ref={setScrollNode}>
-                <CommandEmpty>
-                  {noLocalMatches
-                    ? "No channels match your search."
-                    : "No channels available."}
-                </CommandEmpty>
+                {filteredChannels.length === 0 && (
+                  <CommandEmpty>
+                    {noLocalMatches
+                      ? "No channels match your search."
+                      : "No channels available."}
+                  </CommandEmpty>
+                )}
                 <CommandGroup
                   style={{
                     height: virtualizer.getTotalSize(),
