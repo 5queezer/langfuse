@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from "react";
+import React, { useState, useMemo, useCallback, useEffect } from "react";
 import { RefreshCw, Search, Hash, Lock, AlertTriangle } from "lucide-react";
 import { Button } from "@/src/components/ui/button";
 import {
@@ -103,6 +103,29 @@ export const ChannelSelector: React.FC<ChannelSelectorProps> = ({
       staleTime: 5 * 60 * 1000, // 5 minutes
     },
   );
+  const hasPrivateChannelAccess = channelsData?.hasPrivateChannelAccess;
+
+  useEffect(() => {
+    if (hasPrivateChannelAccess !== false) {
+      return;
+    }
+
+    const handleMessage = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin) {
+        return;
+      }
+
+      if (event.data?.type === "slack-oauth-success") {
+        void refetchChannels();
+      }
+    };
+
+    window.addEventListener("message", handleMessage);
+
+    return () => {
+      window.removeEventListener("message", handleMessage);
+    };
+  }, [hasPrivateChannelAccess, refetchChannels]);
 
   // Handle refresh
   const handleRefresh = async () => {

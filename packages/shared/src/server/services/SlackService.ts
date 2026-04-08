@@ -449,7 +449,8 @@ export class SlackService {
         isPrivate: result.channel.is_private || false,
         isMember: result.channel.is_member || false,
       };
-    } catch {
+    } catch (error) {
+      logger.warn("Failed to fetch channel info", { error, channelId });
       return null;
     }
   }
