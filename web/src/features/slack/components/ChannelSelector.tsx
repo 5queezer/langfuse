@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback, useEffect } from "react";
+import React, { useState, useMemo, useCallback } from "react";
 import { RefreshCw, Search, Hash, Lock, AlertTriangle } from "lucide-react";
 import { Button } from "@/src/components/ui/button";
 import {
@@ -103,29 +103,6 @@ export const ChannelSelector: React.FC<ChannelSelectorProps> = ({
       staleTime: 5 * 60 * 1000, // 5 minutes
     },
   );
-  const hasPrivateChannelAccess = channelsData?.hasPrivateChannelAccess;
-
-  useEffect(() => {
-    if (hasPrivateChannelAccess !== false) {
-      return;
-    }
-
-    const handleMessage = (event: MessageEvent) => {
-      if (event.origin !== window.location.origin) {
-        return;
-      }
-
-      if (event.data?.type === "slack-oauth-success") {
-        void refetchChannels();
-      }
-    };
-
-    window.addEventListener("message", handleMessage);
-
-    return () => {
-      window.removeEventListener("message", handleMessage);
-    };
-  }, [hasPrivateChannelAccess, refetchChannels]);
 
   // Handle refresh
   const handleRefresh = async () => {
@@ -155,14 +132,14 @@ export const ChannelSelector: React.FC<ChannelSelectorProps> = ({
 
     // Apply search filter
     if (searchValue.trim()) {
-      const searchTerm = searchValue.replace(/^#/, "").toLowerCase().trim();
+      const searchTerm = searchValue.toLowerCase().trim();
       channels = channels.filter((channel) =>
         channel.name.toLowerCase().includes(searchTerm),
       );
     }
 
     // Sort channels: public channels first, then private, then by name
-    return [...channels].sort((a, b) => {
+    return channels.sort((a, b) => {
       if (a.isPrivate !== b.isPrivate) {
         return a.isPrivate ? 1 : -1;
       }
@@ -205,12 +182,6 @@ export const ChannelSelector: React.FC<ChannelSelectorProps> = ({
       isMember: false,
     });
   }, [searchValue, selectAndClose]);
-
-  useEffect(() => {
-    if (scrollNode) {
-      scrollNode.scrollTop = 0;
-    }
-  }, [searchValue, scrollNode]);
 
   // Render channel item
   const renderChannelItem = (channel: SlackChannel) => (
@@ -277,15 +248,7 @@ export const ChannelSelector: React.FC<ChannelSelectorProps> = ({
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-2">
-        <Popover
-          open={open}
-          onOpenChange={(newOpen) => {
-            setOpen(newOpen);
-            if (!newOpen) {
-              setSearchValue("");
-            }
-          }}
-        >
+        <Popover open={open} onOpenChange={setOpen}>
           <PopoverTrigger asChild>
             <Button
               variant="outline"
@@ -310,8 +273,12 @@ export const ChannelSelector: React.FC<ChannelSelectorProps> = ({
                 onValueChange={setSearchValue}
               />
               <CommandList ref={setScrollNode}>
-                {!noLocalMatches && filteredChannels.length === 0 && (
-                  <CommandEmpty>No channels available.</CommandEmpty>
+                {filteredChannels.length === 0 && (
+                  <CommandEmpty>
+                    {noLocalMatches
+                      ? "No channels match your search."
+                      : "No channels available."}
+                  </CommandEmpty>
                 )}
                 <CommandGroup
                   style={{
@@ -341,7 +308,7 @@ export const ChannelSelector: React.FC<ChannelSelectorProps> = ({
                   })}
                 </CommandGroup>
 
-                {/* When search has no matches and the user hasn't typed anything yet, offer to use the typed name */}
+                {/* When search has no matches, offer to use the typed name */}
                 {noLocalMatches && (
                   <CommandGroup>
                     <CommandItem
