@@ -45,11 +45,6 @@ export type RetryScheduleResult =
 /**
  * Handles rate limiting and retry logic for queue jobs
  * Automatically retries jobs that fail with 429/5xx errors unless they're older than 24h
- *
- * @param error - The error that occurred
- * @param job - The job that failed
- * @param config - Retry configuration
- * @returns true if retry was handled and job was added to the queue, false if regular processing should continue
  */
 export async function retryLLMRateLimitError(
   job: {
@@ -167,10 +162,12 @@ export async function retryLLMRateLimitError(
   } catch (innerErr) {
     const jobId = job.data.payload[config.idField];
     logger.error(
-      `Failed to handle 429 retry for ${jobId}. Continuing regular processing.`,
+      `Failed to handle 429 retry for ${jobId}. Falling back to caller error handling.`,
       innerErr,
     );
 
-    throw innerErr;
+    return {
+      outcome: "queue_unavailable",
+    };
   }
 }

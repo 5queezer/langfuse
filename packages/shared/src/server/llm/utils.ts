@@ -1,8 +1,14 @@
 import { z } from "zod";
 
 import { decrypt } from "../../encryption";
+import { LLMAdapter } from "./types";
 
 const ExtraHeaderSchema = z.record(z.string(), z.string());
+
+export const RUNTIME_TIMEOUT_ADAPTERS = new Set([
+  LLMAdapter.VertexAI,
+  LLMAdapter.GoogleAIStudio,
+]);
 
 export async function executeWithRuntimeTimeout<T>({
   enabled,

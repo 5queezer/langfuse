@@ -46,6 +46,7 @@ import { decrypt } from "../../encryption";
 import {
   decryptAndParseExtraHeaders,
   executeWithRuntimeTimeout,
+  RUNTIME_TIMEOUT_ADAPTERS,
 } from "./utils";
 import { logger } from "../logger";
 import { LLMCompletionError } from "./errors";
@@ -111,11 +112,6 @@ type FetchLLMCompletionParams = LLMCompletionParams & {
   streaming: boolean;
   tools?: LLMToolDefinition[];
 };
-
-const RUNTIME_TIMEOUT_ADAPTERS = new Set([
-  LLMAdapter.VertexAI,
-  LLMAdapter.GoogleAIStudio,
-]);
 
 export async function fetchLLMCompletion(
   params: LLMCompletionParams & {

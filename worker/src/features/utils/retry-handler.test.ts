@@ -70,4 +70,39 @@ describe("retryLLMRateLimitError", () => {
     );
     expect(recordDistribution).toHaveBeenCalledTimes(2);
   });
+
+  it("returns queue_unavailable instead of throwing when age lookup fails", async () => {
+    (prisma.jobExecution.findFirstOrThrow as Mock).mockRejectedValue(
+      new Error("database unavailable"),
+    );
+
+    const result = await retryLLMRateLimitError(
+      {
+        data: {
+          timestamp: new Date(),
+          payload: {
+            projectId: "project-id",
+            jobExecutionId: "job-execution-id",
+          },
+        },
+      },
+      {
+        table: "job_executions",
+        idField: "jobExecutionId",
+        queue: { add: vi.fn() },
+        queueName: "llm-as-a-judge-execution-queue-1",
+        jobName: "llm-as-a-judge-execution-job",
+        delayFn: () => 30_000,
+      },
+    );
+
+    expect(result).toEqual({
+      outcome: "queue_unavailable",
+    });
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.stringContaining("Failed to handle 429 retry"),
+      expect.any(Error),
+    );
+    expect(recordDistribution).not.toHaveBeenCalled();
+  });
 });
