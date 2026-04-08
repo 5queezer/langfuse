@@ -65,7 +65,7 @@ export async function downloadServerTraceAsJson(
   const blob = await response.blob();
   downloadBlob({
     blob,
-    filename: `trace-${traceId}.json`,
+    filename: `trace-${encodeURIComponent(traceId)}.json`,
   });
 }
 
