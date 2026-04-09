@@ -5,6 +5,8 @@ import { useCopyToClipboard } from "@/src/hooks/useCopyToClipboard";
 import { cn } from "@/src/utils/tailwind";
 import { Check, Copy } from "lucide-react";
 
+type TableDensity = "compact" | "comfortable";
+
 const Table = React.forwardRef<
   HTMLTableElement,
   React.HTMLAttributes<HTMLTableElement>
@@ -87,12 +89,13 @@ TableHead.displayName = "TableHead";
 
 const TableCell = React.forwardRef<
   HTMLTableCellElement,
-  React.TdHTMLAttributes<HTMLTableCellElement>
->(({ className, ...props }, ref) => (
+  React.TdHTMLAttributes<HTMLTableCellElement> & { density?: TableDensity }
+>(({ className, density = "compact", ...props }, ref) => (
   <td
     ref={ref}
     className={cn(
-      "h-full px-2 py-0 align-middle [&:has([role=checkbox])]:pr-0",
+      "h-full align-middle [&:has([role=checkbox])]:pr-0",
+      density === "comfortable" ? "p-2" : "px-2 py-0",
       "border-b [:last-child_>_&]:border-b-0",
       className,
     )}
@@ -105,17 +108,19 @@ type TableCellWithCopyButtonProps =
   React.TdHTMLAttributes<HTMLTableCellElement> & {
     text: string;
     copyButtonLabel?: string;
+    density?: TableDensity;
   };
 
 const TableCellWithCopyButton = React.forwardRef<
   HTMLTableCellElement,
   TableCellWithCopyButtonProps
->(({ text, copyButtonLabel, className, ...props }, ref) => {
+>(({ text, copyButtonLabel, className, density, ...props }, ref) => {
   const { copy, isCopied } = useCopyToClipboard();
 
   return (
     <TableCell
       ref={ref}
+      density={density}
       className={cn("relative min-w-0 pr-10", className)}
       title={text}
       {...props}

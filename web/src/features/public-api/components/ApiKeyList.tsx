@@ -118,7 +118,11 @@ export function ApiKeyList(props: { entityId: string; scope: ApiKeyScope }) {
           <TableBody className="text-muted-foreground">
             {apiKeysQuery.data?.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={5} className="text-center">
+                <TableCell
+                  density="comfortable"
+                  colSpan={5}
+                  className="text-center"
+                >
                   None
                 </TableCell>
               </TableRow>
@@ -128,10 +132,13 @@ export function ApiKeyList(props: { entityId: string; scope: ApiKeyScope }) {
                   key={apiKey.id}
                   className="hover:bg-primary-foreground"
                 >
-                  <TableCell className="hidden md:table-cell">
+                  <TableCell
+                    density="comfortable"
+                    className="hidden md:table-cell"
+                  >
                     {apiKey.createdAt.toLocaleDateString()}
                   </TableCell>
-                  <TableCell>
+                  <TableCell density="comfortable">
                     <ApiKeyNote
                       apiKey={apiKey}
                       entityId={entityId}
@@ -139,16 +146,17 @@ export function ApiKeyList(props: { entityId: string; scope: ApiKeyScope }) {
                     />
                   </TableCell>
                   <TableCellWithCopyButton
+                    density="comfortable"
                     text={apiKey.publicKey}
                     className="truncate font-mono"
                   />
-                  <TableCell className="font-mono">
+                  <TableCell density="comfortable" className="font-mono">
                     {apiKey.displaySecretKey}
                   </TableCell>
                   {/* <TableCell>
                   {apiKey.lastUsedAt?.toLocaleDateString() ?? "Never"}
                 </TableCell> */}
-                  <TableCell>
+                  <TableCell density="comfortable">
                     <DeleteApiKeyButton
                       entityId={entityId}
                       apiKeyId={apiKey.id}
