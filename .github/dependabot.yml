@@ -54,6 +54,8 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    cooldown:
+      default-days: 8
     commit-message:
       prefix: ci
       include: scope
