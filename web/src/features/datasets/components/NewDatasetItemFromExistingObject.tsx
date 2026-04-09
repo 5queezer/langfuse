@@ -56,7 +56,7 @@ export const NewDatasetItemFromExistingObject = (props: {
 
     if (typeof value === "string") {
       const parsed = parseJsonPrioritised(value);
-      return parsed ?? value;
+      return parsed !== undefined ? parsed : value;
     }
 
     return value;
