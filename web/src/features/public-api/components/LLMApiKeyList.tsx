@@ -88,6 +88,7 @@ export function LlmApiKeyList(props: { projectId: string }) {
                 <TableHead className="text-primary">Extra headers</TableHead>
               ) : null}
               <TableHead />
+              <TableHead className="text-primary md:table-cell"></TableHead>
             </TableRow>
           </TableHeader>
           <TableBody className="text-muted-foreground">
