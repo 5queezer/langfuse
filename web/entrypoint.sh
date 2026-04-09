@@ -1,12 +1,19 @@
 #!/bin/sh
 
+# URL-encode a string for use in a connection URI.
+# Only called when constructing DATABASE_URL from individual env vars,
+# so it cannot affect setups that provide DATABASE_URL directly.
+urlencode() {
+    node -p "encodeURIComponent(process.argv[1])" -- "$1"
+}
+
 # Run cleanup script before running migrations
 # Check if DATABASE_URL is not set
 if [ -z "$DATABASE_URL" ]; then
     # Check if all required variables are provided
     if [ -n "$DATABASE_HOST" ] && [ -n "$DATABASE_USERNAME" ] && [ -n "$DATABASE_PASSWORD" ]  && [ -n "$DATABASE_NAME" ]; then
         # Construct DATABASE_URL from the provided variables
-        DATABASE_URL="postgresql://${DATABASE_USERNAME}:${DATABASE_PASSWORD}@${DATABASE_HOST}/${DATABASE_NAME}"
+        DATABASE_URL="postgresql://$(urlencode "$DATABASE_USERNAME"):$(urlencode "$DATABASE_PASSWORD")@${DATABASE_HOST}/${DATABASE_NAME}"
         export DATABASE_URL
     else
         echo "Error: Required database environment variables are not set. Provide a postgres url for DATABASE_URL."
