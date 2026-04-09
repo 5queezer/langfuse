@@ -423,7 +423,7 @@ export const llmApiKeyRouter = createTRPCRouter({
       throwIfNoProjectAccess({
         session: ctx.session,
         projectId: input.projectId,
-        scope: "llmApiKeys:update",
+        scope: "llmApiKeys:create",
       });
 
       try {
@@ -442,18 +442,25 @@ export const llmApiKeyRouter = createTRPCRouter({
           });
         }
 
-        const decryptedSecretKey =
-          input.secretKey !== undefined &&
-          input.secretKey !== "" &&
-          input.secretKey !== null
-            ? input.secretKey
-            : decrypt(existingKey.secretKey);
+        const hasNewSecretKey =
+          typeof input.secretKey === "string" && input.secretKey.length > 0;
+        const baseURL = input.baseURL ?? existingKey.baseURL;
+        const isBaseURLChanged = baseURL !== existingKey.baseURL;
+
+        if (isBaseURLChanged && !hasNewSecretKey) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Secret key is required when changing the base URL",
+          });
+        }
+
+        const secretKey = hasNewSecretKey
+          ? input.secretKey
+          : decrypt(existingKey.secretKey);
 
         // Merge existing key with provided input, giving priority to input
-        const secretKey = decryptedSecretKey;
         const adapter = input.adapter ?? (existingKey.adapter as LLMAdapter);
         const provider = input.provider ?? existingKey.provider;
-        const baseURL = input.baseURL ?? existingKey.baseURL;
         const customModels = input.customModels ?? existingKey.customModels;
         const config = input.config ?? existingKey.config;
         const extraHeaders =
